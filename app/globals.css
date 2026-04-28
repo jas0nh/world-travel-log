@@ -1,0 +1,549 @@
+:root {
+  --bg: #f4f1ea;
+  --ink: #16201b;
+  --muted: #68746d;
+  --line: rgba(22, 32, 27, 0.13);
+  --panel: rgba(255, 252, 245, 0.94);
+  --accent: #0f766e;
+  --accent-strong: #0b5d57;
+  --danger: #a33d32;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.shell,
+.workspace {
+  height: 100svh;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr) 340px;
+  overflow: hidden;
+}
+
+.panel,
+.inspector {
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  border-color: var(--line);
+  border-style: solid;
+  z-index: 20;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+  min-height: 0;
+  border-width: 0 1px 0 0;
+  padding: 22px;
+}
+
+.brand {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 30px;
+  line-height: 1.05;
+}
+
+h2 {
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.iconButton {
+  align-items: center;
+  background: #fffaf1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 22px 0 16px;
+}
+
+.crumbs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(15, 118, 110, 0.35);
+  color: var(--accent-strong);
+  padding: 2px 0;
+}
+
+.progressBlock {
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+}
+
+.progressBlock div:first-child {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+.progressBlock span,
+.progressBlock p,
+.muted,
+.placeItem small {
+  color: var(--muted);
+}
+
+.progressBlock strong {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.progressBlock p {
+  margin: 10px 0 0;
+}
+
+.meter {
+  background: rgba(15, 118, 110, 0.12);
+  border-radius: 999px;
+  height: 8px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+
+.meter span {
+  background: var(--accent);
+  display: block;
+  height: 100%;
+  transition: width 220ms ease;
+}
+
+.searchRow {
+  align-items: center;
+  background: #fffaf1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 0 12px;
+}
+
+.searchRow input {
+  background: transparent;
+  border: 0;
+  min-width: 0;
+  outline: 0;
+  padding: 12px 0;
+  width: 100%;
+}
+
+.segmented {
+  background: rgba(22, 32, 27, 0.07);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 14px 0;
+  padding: 4px;
+}
+
+.segmented button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  min-width: 0;
+  padding: 8px 6px;
+}
+
+.segmented .active {
+  background: #fffaf1;
+  color: var(--ink);
+  box-shadow: 0 1px 5px rgba(22, 32, 27, 0.09);
+}
+
+.viewTabs {
+  background: rgba(22, 32, 27, 0.07);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, 1fr);
+  margin-bottom: 14px;
+  padding: 4px;
+}
+
+.viewTabs button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+  min-height: 36px;
+}
+
+.viewTabs .active {
+  background: #fffaf1;
+  color: var(--ink);
+  box-shadow: 0 1px 5px rgba(22, 32, 27, 0.09);
+}
+
+.placeList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.placeItem {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 28px 1fr;
+  padding: 10px 8px;
+  text-align: left;
+}
+
+.placeItem:hover,
+.placeItem.selected {
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.placeItem strong,
+.placeItem small {
+  display: block;
+}
+
+.placeItem strong {
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.placeItem small {
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.pin {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.pin.visited {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.mapStage {
+  height: 100svh;
+  min-height: 0;
+  position: relative;
+}
+
+.mapCanvas,
+.mapLoading {
+  height: 100%;
+  width: 100%;
+}
+
+.mapLoading,
+.loading,
+.empty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  justify-content: center;
+}
+
+.loading {
+  min-height: 100svh;
+}
+
+.empty {
+  min-height: 120px;
+  text-align: center;
+}
+
+.inspector {
+  border-width: 0 0 0 1px;
+  height: 100svh;
+  min-height: 0;
+  padding: 24px;
+  position: relative;
+}
+
+.inspector .close {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+}
+
+.inspector h2 {
+  padding-right: 42px;
+}
+
+.inspector label {
+  color: var(--muted);
+  display: block;
+  font-size: 13px;
+  margin-top: 20px;
+}
+
+.inspector input,
+.inspector textarea {
+  background: #fffaf1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  display: block;
+  margin-top: 8px;
+  outline: 0;
+  padding: 12px;
+  width: 100%;
+}
+
+.inspector textarea {
+  min-height: 130px;
+  resize: vertical;
+}
+
+.dateControls {
+  display: grid;
+  margin-top: 8px;
+}
+
+.dateParts {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dateParts input {
+  margin-top: 0;
+  text-align: center;
+}
+
+.overviewPane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.overviewStats {
+  display: grid;
+  gap: 10px;
+}
+
+.statBlock {
+  border-bottom: 1px solid var(--line);
+  padding: 0 0 12px;
+}
+
+.statBlock span,
+.recentList span,
+.timelineGroup small {
+  color: var(--muted);
+}
+
+.statBlock strong {
+  display: block;
+  font-size: 26px;
+  line-height: 1;
+  margin-top: 5px;
+}
+
+.overviewSection h3 {
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
+.timelineList,
+.recentList {
+  display: grid;
+  gap: 8px;
+}
+
+.timelineGroup,
+.recentList article {
+  background: rgba(255, 250, 241, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.timelineGroup {
+  display: grid;
+  gap: 6px;
+}
+
+.timelineGroup > span,
+.recentList article {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.timelineGroup small,
+.recentList span {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 18px;
+}
+
+.primary,
+.ghost,
+.wide {
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: white;
+}
+
+.ghost,
+.wide {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.wide {
+  margin-top: 12px;
+  width: 100%;
+}
+
+.inspectorEmpty {
+  height: 100%;
+}
+
+.maplibregl-map {
+  background: #dbe6df;
+  font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+@media (max-width: 1080px) {
+  .workspace {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+
+  .inspector {
+    bottom: 18px;
+    box-shadow: 0 18px 44px rgba(22, 32, 27, 0.2);
+    max-height: calc(100svh - 36px);
+    overflow: auto;
+    position: fixed;
+    right: 18px;
+    transform: translateX(calc(100% + 36px));
+    transition: transform 180ms ease;
+    width: min(340px, calc(100vw - 36px));
+  }
+
+  .inspector.open {
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace {
+    display: block;
+  }
+
+  .panel {
+    border-width: 0 0 1px;
+    min-height: auto;
+    padding: 16px;
+  }
+
+  .placeList {
+    max-height: 260px;
+  }
+
+  .mapStage,
+  .mapCanvas,
+  .mapLoading {
+    min-height: 58svh;
+  }
+}

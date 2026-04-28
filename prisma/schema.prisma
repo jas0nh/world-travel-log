@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum PlaceLevel {
+  COUNTRY
+  REGION
+  CITY
+}
+
+enum DatePrecision {
+  UNKNOWN
+  YEAR
+  MONTH
+  DAY
+}
+
+model Place {
+  id          String      @id
+  name        String
+  nativeName  String?
+  level       PlaceLevel
+  code        String?
+  isoNumeric  String?
+  countryCode String?
+  lat         Float
+  lng         Float
+  parentId    String?
+  parent      Place?      @relation("PlaceChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Place[]     @relation("PlaceChildren")
+  visit       Visit?
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([level])
+  @@index([parentId])
+  @@index([countryCode])
+  @@index([isoNumeric])
+}
+
+model Visit {
+  id            String        @id @default(cuid())
+  placeId       String        @unique
+  place         Place         @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  visitedAt     DateTime?
+  datePrecision DatePrecision @default(UNKNOWN)
+  visitedYear   Int?
+  visitedMonth  Int?
+  visitedDay    Int?
+  note          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model MapLayerCache {
+  id          String   @id
+  placeId     String?
+  level       PlaceLevel
+  source      String
+  attribution String
+  dataPath    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([placeId])
+  @@index([level])
+}

@@ -1,0 +1,50 @@
+{
+  "name": "travel-map",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:reset": "prisma db push --force-reset && npm run db:seed",
+    "data:world": "tsx scripts/build-world-boundaries.ts",
+    "data:map-assets": "node scripts/build-map-assets.js",
+    "import:geo": "tsx scripts/import-geo-data.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.17.1",
+    "china-geojson": "^1.0.0",
+    "clsx": "^2.1.1",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.11.0",
+    "maplibre-gl": "^5.24.0",
+    "next": "^16.2.4",
+    "pmtiles": "^4.4.1",
+    "prisma": "^6.17.1",
+    "province-city-china": "^8.5.8",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-leaflet": "^5.0.0",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/topojson-client": "^3.1.5",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.4",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
