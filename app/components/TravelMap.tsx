@@ -15,12 +15,17 @@ import type { MapFeature, MapLayerDto } from "@/app/lib/types";
 
 type Props = {
   layer: MapLayerDto;
+  contextLayer: MapLayerDto | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onDrill: (id: string) => void;
+  onJump: (id: string) => void;
 };
 
 const CURRENT_SOURCE = "current-places";
+const CONTEXT_SOURCE = "context-countries";
+const CONTEXT_FILL = "context-countries-fill";
+const CONTEXT_LINE = "context-countries-line";
 const CURRENT_FILL = "current-places-fill";
 const CURRENT_LINE = "current-places-line";
 const CURRENT_CIRCLE = "current-places-circle";
@@ -45,14 +50,23 @@ function releasePmtilesProtocol() {
   }
 }
 
-export default function TravelMap({ layer, selectedId, onSelect, onDrill }: Props) {
+export default function TravelMap({
+  layer,
+  contextLayer,
+  selectedId,
+  onSelect,
+  onDrill,
+  onJump
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const popupRef = useRef<Popup | null>(null);
   const selectedIdRef = useRef(selectedId);
   const onSelectRef = useRef(onSelect);
   const onDrillRef = useRef(onDrill);
+  const onJumpRef = useRef(onJump);
   const initialLayerRef = useRef(layer);
+  const initialContextLayerRef = useRef(contextLayer);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -68,13 +82,17 @@ export default function TravelMap({ layer, selectedId, onSelect, onDrill }: Prop
   }, [onDrill]);
 
   useEffect(() => {
+    onJumpRef.current = onJump;
+  }, [onJump]);
+
+  useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     const initialLayer = initialLayerRef.current;
     retainPmtilesProtocol();
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: createStyle(initialLayer),
+      style: createStyle(initialLayer, initialContextLayerRef.current),
       center: getLayerCenter(initialLayer),
       zoom: 2,
       minZoom: 1.2,
@@ -98,6 +116,12 @@ export default function TravelMap({ layer, selectedId, onSelect, onDrill }: Prop
       const feature = event.features?.[0];
       const id = getFeatureId(feature);
       if (id) onDrillRef.current(id);
+    };
+
+    const handleJump = (event: MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      const id = getFeatureId(feature);
+      if (id) onJumpRef.current(id);
     };
 
     const handleMouseEnter = () => {
@@ -130,6 +154,10 @@ export default function TravelMap({ layer, selectedId, onSelect, onDrill }: Prop
       map.on("mouseleave", layerId, handleMouseLeave);
     }
 
+    map.on("click", CONTEXT_FILL, handleJump);
+    map.on("mouseenter", CONTEXT_FILL, handleMouseEnter);
+    map.on("mouseleave", CONTEXT_FILL, handleMouseLeave);
+
     return () => {
       popupRef.current?.remove();
       map.remove();
@@ -153,10 +181,24 @@ export default function TravelMap({ layer, selectedId, onSelect, onDrill }: Prop
     else map.once("load", updateData);
   }, [layer]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const updateContext = () => {
+      const source = map.getSource(CONTEXT_SOURCE) as GeoJSONSource | undefined;
+      if (!source) return;
+      source.setData(toGeoJson(contextLayer ?? emptyFeatureCollection()));
+    };
+
+    if (map.isStyleLoaded()) updateContext();
+    else map.once("load", updateContext);
+  }, [contextLayer]);
+
   return <div ref={containerRef} className="mapCanvas" />;
 }
 
-function createStyle(layer: MapLayerDto): StyleSpecification {
+function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): StyleSpecification {
   return {
     version: 8,
     sources: {
@@ -177,6 +219,10 @@ function createStyle(layer: MapLayerDto): StyleSpecification {
       [CURRENT_SOURCE]: {
         type: "geojson",
         data: toGeoJson(layer)
+      },
+      [CONTEXT_SOURCE]: {
+        type: "geojson",
+        data: toGeoJson(contextLayer ?? emptyFeatureCollection())
       }
     },
     layers: [
@@ -217,6 +263,27 @@ function createStyle(layer: MapLayerDto): StyleSpecification {
           "line-color": "#6b7f79",
           "line-opacity": ["interpolate", ["linear"], ["zoom"], 2, 0.16, 6, 0.45],
           "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.25, 6, 0.8]
+        }
+      },
+      {
+        id: CONTEXT_FILL,
+        type: "fill",
+        source: CONTEXT_SOURCE,
+        filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
+        paint: {
+          "fill-color": "#ffffff",
+          "fill-opacity": 0
+        }
+      },
+      {
+        id: CONTEXT_LINE,
+        type: "line",
+        source: CONTEXT_SOURCE,
+        filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
+        paint: {
+          "line-color": "#94a3b8",
+          "line-opacity": 0.22,
+          "line-width": 0.8
         }
       },
       {
@@ -343,6 +410,14 @@ function updateSelectedPaint(map: MapLibreMap | null, selectedId: string | null)
 
 function toGeoJson(layer: MapLayerDto) {
   return layer as unknown as FeatureCollection;
+}
+
+function emptyFeatureCollection(): MapLayerDto {
+  return {
+    type: "FeatureCollection",
+    attribution: "",
+    features: []
+  };
 }
 
 function fitLayer(map: MapLibreMap, layer: MapLayerDto, animate: boolean) {

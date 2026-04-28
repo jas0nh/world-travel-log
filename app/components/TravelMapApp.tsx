@@ -38,6 +38,8 @@ export default function TravelMapApp() {
   const [parentId, setParentId] = useState<string | null>(null);
   const [places, setPlaces] = useState<PlaceDto[]>([]);
   const [layer, setLayer] = useState<MapLayerDto | null>(null);
+  const [rootPlaces, setRootPlaces] = useState<PlaceDto[]>([]);
+  const [rootLayer, setRootLayer] = useState<MapLayerDto | null>(null);
   const [breadcrumb, setBreadcrumb] = useState<Breadcrumb[]>([]);
   const [selected, setSelected] = useState<PlaceDto | null>(null);
   const [query, setQuery] = useState("");
@@ -69,6 +71,21 @@ export default function TravelMapApp() {
   useEffect(() => {
     void load(parentId);
   }, [load, parentId]);
+
+  useEffect(() => {
+    const loadRootContext = async () => {
+      const [placeResponse, layerResponse] = await Promise.all([
+        fetch("/api/places"),
+        fetch("/api/map-layer")
+      ]);
+      const placeData = (await placeResponse.json()) as PlaceResponse;
+      const layerData = (await layerResponse.json()) as MapLayerDto;
+      setRootPlaces(placeData.places);
+      setRootLayer(layerData);
+    };
+
+    void loadRootContext();
+  }, []);
 
   const loadOverview = useCallback(async () => {
     const response = await fetch("/api/overview");
@@ -121,6 +138,25 @@ export default function TravelMapApp() {
     } else {
       setSelected(place);
     }
+  };
+
+  const jumpToCountry = (placeId: string) => {
+    const country = rootPlaces.find((item) => item.id === placeId);
+    if (!country) return;
+
+    setQuery("");
+    if (country.totalChildren > 0) {
+      setParentId(country.id);
+      setSelected(null);
+      return;
+    }
+
+    setParentId(null);
+    setSelected(country);
+    setNote(country.note ?? "");
+    setVisitedYear(country.visitedYear ? String(country.visitedYear) : "");
+    setVisitedMonth(country.visitedMonth ? String(country.visitedMonth) : "");
+    setVisitedDay(country.visitedDay ? String(country.visitedDay) : "");
   };
 
   const updateVisitState = (placeId: string, visited: boolean) => {
@@ -299,6 +335,7 @@ export default function TravelMapApp() {
         {layer && (
           <TravelMap
             layer={layer}
+            contextLayer={parentId ? rootLayer : null}
             selectedId={selected?.id ?? null}
             onSelect={(id) => {
               const place = places.find((item) => item.id === id);
@@ -308,6 +345,7 @@ export default function TravelMapApp() {
               const place = places.find((item) => item.id === id);
               if (place) drillInto(place);
             }}
+            onJump={jumpToCountry}
           />
         )}
       </section>
