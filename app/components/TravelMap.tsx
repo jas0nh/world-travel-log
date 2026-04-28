@@ -269,7 +269,6 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CONTEXT_FILL,
         type: "fill",
         source: CONTEXT_SOURCE,
-        filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
         paint: {
           "fill-color": "#ffffff",
           "fill-opacity": 0
@@ -279,7 +278,6 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CONTEXT_LINE,
         type: "line",
         source: CONTEXT_SOURCE,
-        filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
         paint: {
           "line-color": "#94a3b8",
           "line-opacity": 0.22,
@@ -290,7 +288,6 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CURRENT_FILL,
         type: "fill",
         source: CURRENT_SOURCE,
-        filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
         paint: {
           "fill-color": [
             "case",
@@ -312,7 +309,6 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CURRENT_LINE,
         type: "line",
         source: CURRENT_SOURCE,
-        filter: ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false],
         paint: {
           "line-color": [
             "case",
@@ -330,7 +326,6 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CURRENT_CIRCLE,
         type: "circle",
         source: CURRENT_SOURCE,
-        filter: ["==", ["geometry-type"], "Point"],
         paint: {
           "circle-radius": [
             "case",
