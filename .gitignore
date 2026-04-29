@@ -17,3 +17,5 @@ travel-map.db-journal
 public/data/*.pmtiles
 public/data/cities.json
 public/data/manifest.json
+
+AGENTS.md

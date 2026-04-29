@@ -1,6 +1,7 @@
 import { DatePrecision } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { recomputeDerivedVisits } from "@/app/lib/visit-logic";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -27,17 +28,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsedDate.error }, { status: 400 });
   }
 
-  const visit = await prisma.visit.upsert({
-    where: { placeId: body.placeId },
-    create: {
-      placeId: body.placeId,
-      ...parsedDate.data,
-      note: body.note?.trim() || null
-    },
-    update: {
-      ...parsedDate.data,
-      note: body.note?.trim() || null
-    }
+  const visit = await prisma.$transaction(async (tx) => {
+    const savedVisit = await tx.visit.upsert({
+      where: { placeId: body.placeId! },
+      create: {
+        placeId: body.placeId!,
+        ...parsedDate.data,
+        isDerived: false,
+        note: body.note?.trim() || null
+      },
+      update: {
+        ...parsedDate.data,
+        isDerived: false,
+        note: body.note?.trim() || null
+      }
+    });
+
+    await recomputeDerivedVisits(tx);
+    return savedVisit;
   });
 
   return NextResponse.json({ visit });

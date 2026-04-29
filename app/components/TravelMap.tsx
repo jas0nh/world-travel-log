@@ -6,6 +6,7 @@ import maplibregl, {
   Map as MapLibreMap,
   MapLayerMouseEvent,
   Popup,
+  FilterSpecification,
   StyleSpecification
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
@@ -17,6 +18,7 @@ type Props = {
   layer: MapLayerDto;
   contextLayer: MapLayerDto | null;
   selectedId: string | null;
+  skipFitToken: number;
   onSelect: (id: string) => void;
   onDrill: (id: string) => void;
   onJump: (id: string) => void;
@@ -30,6 +32,9 @@ const CURRENT_FILL = "current-places-fill";
 const CURRENT_LINE = "current-places-line";
 const CURRENT_CIRCLE = "current-places-circle";
 const INTERACTIVE_LAYERS = [CURRENT_FILL, CURRENT_CIRCLE] as const;
+const AREA_FILTER: FilterSpecification = ["==", "$type", "Polygon"];
+const POINT_FILTER: FilterSpecification = ["==", "$type", "Point"];
+const HIT_TOLERANCE = 22;
 
 let protocolRefCount = 0;
 let protocol: Protocol | null = null;
@@ -54,6 +59,7 @@ export default function TravelMap({
   layer,
   contextLayer,
   selectedId,
+  skipFitToken,
   onSelect,
   onDrill,
   onJump
@@ -65,13 +71,17 @@ export default function TravelMap({
   const onSelectRef = useRef(onSelect);
   const onDrillRef = useRef(onDrill);
   const onJumpRef = useRef(onJump);
+  const layerRef = useRef(layer);
+  const layerViewKeyRef = useRef(getLayerViewKey(layer));
+  const skipFitTokenRef = useRef(skipFitToken);
   const initialLayerRef = useRef(layer);
   const initialContextLayerRef = useRef(contextLayer);
 
   useEffect(() => {
+    layerRef.current = layer;
     selectedIdRef.current = selectedId;
     updateSelectedPaint(mapRef.current, selectedId);
-  }, [selectedId]);
+  }, [layer, selectedId]);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -84,6 +94,10 @@ export default function TravelMap({
   useEffect(() => {
     onJumpRef.current = onJump;
   }, [onJump]);
+
+  useEffect(() => {
+    skipFitTokenRef.current = skipFitToken;
+  }, [skipFitToken]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -105,20 +119,42 @@ export default function TravelMap({
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
     map.doubleClickZoom.disable();
 
+    const findCurrentFeature = (event: MapLayerMouseEvent) => {
+      const exactFeature = map.queryRenderedFeatures(event.point, {
+        layers: [CURRENT_CIRCLE, CURRENT_FILL]
+      })[0];
+      if (exactFeature) return exactFeature;
+
+      const nearbyFeature = map.queryRenderedFeatures(
+        [
+          [event.point.x - HIT_TOLERANCE, event.point.y - HIT_TOLERANCE],
+          [event.point.x + HIT_TOLERANCE, event.point.y + HIT_TOLERANCE]
+        ],
+        { layers: [CURRENT_CIRCLE, CURRENT_FILL] }
+      )[0];
+
+      return nearbyFeature ?? event.features?.[0];
+    };
+
     const handleSelect = (event: MapLayerMouseEvent) => {
-      const feature = event.features?.[0];
+      const feature = findCurrentFeature(event);
       const id = getFeatureId(feature);
       if (id) onSelectRef.current(id);
     };
 
     const handleDrill = (event: MapLayerMouseEvent) => {
       event.preventDefault();
-      const feature = event.features?.[0];
+      const feature = findCurrentFeature(event);
       const id = getFeatureId(feature);
       if (id) onDrillRef.current(id);
     };
 
     const handleJump = (event: MapLayerMouseEvent) => {
+      if (isPointLayer(layerRef.current)) return;
+
+      const currentFeature = findCurrentFeature(event);
+      if (getFeatureId(currentFeature)) return;
+
       const feature = event.features?.[0];
       const id = getFeatureId(feature);
       if (id) onJumpRef.current(id);
@@ -129,7 +165,8 @@ export default function TravelMap({
     };
 
     const handleMouseMove = (event: MapLayerMouseEvent) => {
-      const properties = event.features?.[0]?.properties as MapFeature["properties"] | undefined;
+      const feature = findCurrentFeature(event);
+      const properties = feature?.properties as MapFeature["properties"] | undefined;
       if (!properties) return;
       const popup = popupRef.current ?? new Popup({ closeButton: false, closeOnClick: false });
       popupRef.current = popup;
@@ -174,10 +211,18 @@ export default function TravelMap({
       const source = map.getSource(CURRENT_SOURCE) as GeoJSONSource | undefined;
       source?.setData(toGeoJson(layer));
       updateSelectedPaint(map, selectedIdRef.current);
-      fitLayer(map, layer, true);
+      const nextViewKey = getLayerViewKey(layer);
+      if (layerViewKeyRef.current !== nextViewKey) {
+        if (skipFitTokenRef.current > 0) {
+          skipFitTokenRef.current = 0;
+        } else {
+          fitLayer(map, layer, true);
+        }
+        layerViewKeyRef.current = nextViewKey;
+      }
     };
 
-    if (map.isStyleLoaded()) updateData();
+    if (map.getSource(CURRENT_SOURCE)) updateData();
     else map.once("load", updateData);
   }, [layer]);
 
@@ -191,7 +236,7 @@ export default function TravelMap({
       source.setData(toGeoJson(contextLayer ?? emptyFeatureCollection()));
     };
 
-    if (map.isStyleLoaded()) updateContext();
+    if (map.getSource(CONTEXT_SOURCE)) updateContext();
     else map.once("load", updateContext);
   }, [contextLayer]);
 
@@ -269,6 +314,7 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CONTEXT_FILL,
         type: "fill",
         source: CONTEXT_SOURCE,
+        filter: AREA_FILTER,
         paint: {
           "fill-color": "#ffffff",
           "fill-opacity": 0
@@ -278,6 +324,7 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CONTEXT_LINE,
         type: "line",
         source: CONTEXT_SOURCE,
+        filter: AREA_FILTER,
         paint: {
           "line-color": "#94a3b8",
           "line-opacity": 0.22,
@@ -288,6 +335,7 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CURRENT_FILL,
         type: "fill",
         source: CURRENT_SOURCE,
+        filter: AREA_FILTER,
         paint: {
           "fill-color": [
             "case",
@@ -309,6 +357,7 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CURRENT_LINE,
         type: "line",
         source: CURRENT_SOURCE,
+        filter: AREA_FILTER,
         paint: {
           "line-color": [
             "case",
@@ -326,6 +375,7 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CURRENT_CIRCLE,
         type: "circle",
         source: CURRENT_SOURCE,
+        filter: POINT_FILTER,
         paint: {
           "circle-radius": [
             "case",
@@ -407,12 +457,20 @@ function toGeoJson(layer: MapLayerDto) {
   return layer as unknown as FeatureCollection;
 }
 
+function getLayerViewKey(layer: MapLayerDto) {
+  return layer.features.map((feature) => feature.id).join("|");
+}
+
 function emptyFeatureCollection(): MapLayerDto {
   return {
     type: "FeatureCollection",
     attribution: "",
     features: []
   };
+}
+
+function isPointLayer(layer: MapLayerDto) {
+  return layer.features.some((feature) => feature.geometry.type === "Point");
 }
 
 function fitLayer(map: MapLibreMap, layer: MapLayerDto, animate: boolean) {

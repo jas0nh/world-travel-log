@@ -314,6 +314,10 @@ h2 {
   width: 100%;
 }
 
+.maplibregl-popup {
+  pointer-events: none;
+}
+
 .mapLoading,
 .loading,
 .empty {

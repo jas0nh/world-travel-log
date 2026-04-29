@@ -1,5 +1,8 @@
 import { PrismaClient, PlaceLevel } from "@prisma/client";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
+import { recomputeDerivedVisits } from "../app/lib/visit-logic";
 
 const prisma = new PrismaClient();
 const require = createRequire(import.meta.url);
@@ -33,6 +36,44 @@ type ChinaGeoJson = Record<
   }
 >;
 
+type NaturalEarthAdm1Collection = {
+  features: Array<{
+    properties: {
+      ne_id?: number;
+      iso_a2?: string;
+      adm0_a3?: string;
+      adm1_code?: string;
+      name?: string;
+      name_en?: string;
+      name_zh?: string;
+      latitude?: number;
+      longitude?: number;
+    };
+    geometry: {
+      type: "Polygon" | "MultiPolygon";
+      coordinates: number[][][] | number[][][][];
+    };
+  }>;
+};
+
+type NaturalEarthCitiesCollection = {
+  features: Array<{
+    properties: {
+      NAME?: string;
+      NAMEASCII?: string;
+      ADM0_A3?: string;
+      ADM1NAME?: string;
+      ISO_A2?: string;
+      POP_MAX?: number;
+      NE_ID?: number;
+    };
+    geometry: {
+      type: "Point";
+      coordinates: [number, number];
+    };
+  }>;
+};
+
 type SeedPlace = {
   id: string;
   name: string;
@@ -46,13 +87,41 @@ type SeedPlace = {
   sortOrder?: number;
 };
 
-const fallbackCountries: SeedPlace[] = [
-  { id: "country-cn", name: "China", nativeName: "中国", code: "CN", countryCode: "CN", lat: 35, lng: 103 },
-  { id: "country-jp", name: "Japan", nativeName: "日本", code: "JP", countryCode: "JP", lat: 36, lng: 138 },
-  { id: "country-us", name: "United States", nativeName: "美国", code: "US", countryCode: "US", lat: 39, lng: -98 },
-  { id: "country-fr", name: "France", nativeName: "法国", code: "FR", countryCode: "FR", lat: 46, lng: 2 },
-  { id: "country-th", name: "Thailand", nativeName: "泰国", code: "TH", countryCode: "TH", lat: 15, lng: 101 }
+type CountrySeed = SeedPlace & {
+  alpha3: string;
+};
+
+type RegionMatcher = {
+  parentId: string;
+  geometry: NaturalEarthAdm1Collection["features"][number]["geometry"];
+  bbox: [number, number, number, number];
+  names: Set<string>;
+};
+
+function toSeedPlace(country: CountrySeed): SeedPlace {
+  return {
+    id: country.id,
+    name: country.name,
+    nativeName: country.nativeName,
+    code: country.code,
+    isoNumeric: country.isoNumeric,
+    countryCode: country.countryCode,
+    lat: country.lat,
+    lng: country.lng,
+    parentId: country.parentId,
+    sortOrder: country.sortOrder
+  };
+}
+
+const fallbackCountries: CountrySeed[] = [
+  { id: "country-cn", name: "China", nativeName: "中国", code: "CN", alpha3: "CHN", countryCode: "CN", lat: 35, lng: 103 },
+  { id: "country-jp", name: "Japan", nativeName: "日本", code: "JP", alpha3: "JPN", countryCode: "JP", lat: 36, lng: 138 },
+  { id: "country-us", name: "United States", nativeName: "美国", code: "US", alpha3: "USA", countryCode: "US", lat: 39, lng: -98 },
+  { id: "country-fr", name: "France", nativeName: "法国", code: "FR", alpha3: "FRA", countryCode: "FR", lat: 46, lng: 2 },
+  { id: "country-th", name: "Thailand", nativeName: "泰国", code: "TH", alpha3: "THA", countryCode: "TH", lat: 15, lng: 101 }
 ];
+
+const cityStateCountryCodes = new Set(["SG"]);
 
 const nativeNameOverrides: Record<string, string> = {
   CN: "中国",
@@ -123,12 +192,12 @@ const chinaRegions: SeedPlace[] = chinaRegionRows.map(([code, adminCode, name, n
 }));
 
 const internationalCities: SeedPlace[] = [
-  ["city-jp-tokyo", "Tokyo", "东京", "country-jp", 35.6762, 139.6503],
-  ["city-jp-osaka", "Osaka", "大阪", "country-jp", 34.6937, 135.5023],
-  ["city-us-nyc", "New York", "纽约", "country-us", 40.7128, -74.006],
-  ["city-us-sf", "San Francisco", "旧金山", "country-us", 37.7749, -122.4194],
-  ["city-fr-paris", "Paris", "巴黎", "country-fr", 48.8566, 2.3522],
-  ["city-th-bangkok", "Bangkok", "曼谷", "country-th", 13.7563, 100.5018]
+  ["city-jp-tokyo", "Tokyo", "东京", "region-jp-1159311135", 35.6762, 139.6503],
+  ["city-jp-osaka", "Osaka", "大阪", "region-jp-1159308417", 34.6937, 135.5023],
+  ["city-us-nyc", "New York", "纽约", "region-us-1159312155", 40.7128, -74.006],
+  ["city-us-sf", "San Francisco", "旧金山", "region-us-1159308415", 37.7749, -122.4194],
+  ["city-fr-paris", "Paris", "巴黎", "region-fr-1159316799", 48.8566, 2.3522],
+  ["city-th-bangkok", "Bangkok", "曼谷", "region-th-1159308197", 13.7563, 100.5018]
 ].map(([id, name, nativeName, parentId, lat, lng], index) => ({
   id: id as string,
   name: name as string,
@@ -161,8 +230,8 @@ const legacyChinaCityIds: Record<string, string> = {
 
 const nonMainlandLegacyCities: SeedPlace[] = [
   { id: "city-cn-hk-hongkong", name: "Hong Kong", nativeName: "香港", countryCode: "HK", lat: 22.3193, lng: 114.1694, parentId: "country-hk" },
-  { id: "city-cn-mo-macau", name: "Macau", nativeName: "澳门", countryCode: "MO", lat: 22.1987, lng: 113.5439, parentId: "country-mo" },
-  { id: "city-cn-tw-taipei", name: "Taipei", nativeName: "台北", countryCode: "TW", lat: 25.033, lng: 121.5654, parentId: "country-tw" }
+  { id: "city-cn-mo-macau", name: "Macau", nativeName: "澳门", countryCode: "MO", lat: 22.1987, lng: 113.5439, parentId: "region-mo-1159315653" },
+  { id: "city-cn-tw-taipei", name: "Taipei", nativeName: "台北", countryCode: "TW", lat: 25.033, lng: 121.5654, parentId: "region-tw-1159310405" }
 ];
 
 const cityGeoNameAliases: Record<string, string> = {
@@ -183,7 +252,7 @@ const cityPointFallbacks: Record<string, [number, number]> = {
   三沙市: [112.338, 16.832]
 };
 
-async function loadCountries(): Promise<SeedPlace[]> {
+async function loadCountries(): Promise<CountrySeed[]> {
   try {
     const response = await fetch(
       "https://restcountries.com/v3.1/all?fields=name,cca2,cca3,ccn3,latlng,translations"
@@ -197,6 +266,7 @@ async function loadCountries(): Promise<SeedPlace[]> {
         name: country.name.common,
         nativeName: nativeNameOverrides[country.cca2] ?? country.translations?.zho?.common,
         code: country.cca2,
+        alpha3: country.cca3,
         isoNumeric: country.ccn3,
         countryCode: country.cca2,
         lat: country.latlng![0],
@@ -266,8 +336,283 @@ function buildChinaCities(): SeedPlace[] {
   return [...municipalities, ...prefectureCities];
 }
 
+function buildGlobalRegions(countries: CountrySeed[]) {
+  const filePath = path.join(process.cwd(), ".cache", "natural-earth", "build", "world-adm1.geojson");
+  if (!existsSync(filePath)) {
+    console.warn("Skipping global ADM1 seed: .cache/natural-earth/build/world-adm1.geojson not found");
+    return [];
+  }
+
+  const collection = JSON.parse(readFileSync(filePath, "utf8")) as NaturalEarthAdm1Collection;
+  const countryIdByCode = new Map(
+    countries
+      .filter((country) => country.code)
+      .map((country) => [country.code!, country.id])
+  );
+  const sortOrderByCountry = new Map<string, number>();
+
+  return collection.features.flatMap<SeedPlace>((feature) => {
+    const neId = feature.properties.ne_id;
+    const countryCode = feature.properties.iso_a2?.toUpperCase();
+    const parentId = countryCode ? countryIdByCode.get(countryCode) : null;
+    const lat = feature.properties.latitude;
+    const lng = feature.properties.longitude;
+
+    if (!neId || !countryCode || !parentId || countryCode === "CN" || cityStateCountryCodes.has(countryCode)) return [];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+
+    const nextSortOrder = sortOrderByCountry.get(parentId) ?? 0;
+    sortOrderByCountry.set(parentId, nextSortOrder + 1);
+
+    return [
+      {
+        id: `region-${countryCode.toLowerCase()}-${neId}`,
+        name: feature.properties.name_en ?? feature.properties.name ?? `ADM1 ${neId}`,
+        nativeName: feature.properties.name_zh ?? undefined,
+        code: `ne:${String(neId)}`,
+        countryCode,
+        lat: Number(lat),
+        lng: Number(lng),
+        parentId,
+        sortOrder: nextSortOrder
+      }
+    ];
+  });
+}
+
+function buildGlobalCities(countries: CountrySeed[], globalRegions: SeedPlace[]) {
+  const filePath = path.join(process.cwd(), ".cache", "natural-earth", "build", "cities-natural-earth.geojson");
+  if (!existsSync(filePath)) {
+    console.warn("Skipping global city seed: .cache/natural-earth/build/cities-natural-earth.geojson not found");
+    return [];
+  }
+
+  const collection = JSON.parse(readFileSync(filePath, "utf8")) as NaturalEarthCitiesCollection;
+  const countryIdByAlpha3 = new Map(countries.map((country) => [country.alpha3, country.id]));
+  const countryCodeByAlpha3 = new Map(countries.map((country) => [country.alpha3, country.code ?? null]));
+  const countryHasRegions = new Set(globalRegions.map((region) => region.parentId).filter((value): value is string => Boolean(value)));
+  const regionMatchers = buildRegionMatchers(globalRegions);
+  const sortOrderByParent = new Map<string, number>();
+  const seededCityKeys = new Set(
+    [...internationalCities, ...nonMainlandLegacyCities].map((city) =>
+      `${city.countryCode ?? ""}:${normalizeForMatch(city.name)}`
+    )
+  );
+  const cityIdOverrides = new Map<string, string>([
+    ["JPN:tokyo", "city-jp-tokyo"],
+    ["JPN:osaka", "city-jp-osaka"],
+    ["USA:new-york", "city-us-nyc"],
+    ["USA:san-francisco", "city-us-sf"],
+    ["FRA:paris", "city-fr-paris"],
+    ["THA:bangkok", "city-th-bangkok"],
+    ["SGP:singapore", "city-ne-1159151627"],
+    ["TWN:taipei", "city-cn-tw-taipei"],
+    ["MAC:macau", "city-cn-mo-macau"],
+    ["HKG:hong-kong", "city-cn-hk-hongkong"]
+  ]);
+
+  return collection.features.flatMap<SeedPlace>((feature) => {
+    const alpha3 = feature.properties.ADM0_A3?.toUpperCase();
+    const countryId = alpha3 ? countryIdByAlpha3.get(alpha3) : null;
+    const countryCode = alpha3 ? countryCodeByAlpha3.get(alpha3) : null;
+    const cityName = feature.properties.NAMEASCII ?? feature.properties.NAME;
+    const nativeName = feature.properties.NAME ?? feature.properties.NAMEASCII;
+    const neId = feature.properties.NE_ID;
+
+    if (!alpha3 || !countryId || !countryCode || !cityName || !nativeName || !neId) return [];
+    if (countryCode === "CN") return [];
+
+    const cityKey = `${alpha3}:${normalizeForMatch(cityName)}`;
+    if (seededCityKeys.has(`${countryCode}:${normalizeForMatch(cityName)}`)) return [];
+
+    const [lng, lat] = feature.geometry.coordinates;
+    const parentId = resolveCityParent({
+      countryId,
+      countryHasRegions: countryHasRegions.has(countryId),
+      alpha3,
+      countryCode,
+      lat,
+      lng,
+      adm1Name: feature.properties.ADM1NAME,
+      matchers: regionMatchers
+    });
+
+    if (!parentId) return [];
+    const nextSortOrder = sortOrderByParent.get(parentId) ?? 0;
+    sortOrderByParent.set(parentId, nextSortOrder + 1);
+
+    return [
+      {
+        id: cityIdOverrides.get(cityKey) ?? `city-ne-${neId}`,
+        name: cityName,
+        nativeName,
+        code: `ne:${String(neId)}`,
+        countryCode,
+        lat,
+        lng,
+        parentId,
+        sortOrder: nextSortOrder
+      }
+    ];
+  });
+}
+
+function resolveCityParent(params: {
+  countryId: string;
+  countryHasRegions: boolean;
+  alpha3: string;
+  countryCode: string;
+  lat: number;
+  lng: number;
+  adm1Name?: string;
+  matchers: Map<string, RegionMatcher[]>;
+}) {
+  if (cityStateCountryCodes.has(params.countryCode)) return params.countryId;
+  if (!params.countryHasRegions) return params.countryId;
+
+  const countryMatchers = params.matchers.get(params.alpha3) ?? [];
+  const normalizedAdm1 = normalizeRegionName(params.adm1Name);
+
+  if (normalizedAdm1) {
+    const matchedByName = countryMatchers.find((matcher) => matcher.names.has(normalizedAdm1));
+    if (matchedByName) return matchedByName.parentId;
+  }
+
+  for (const matcher of countryMatchers) {
+    if (!pointInBounds(params.lng, params.lat, matcher.bbox)) continue;
+    if (pointInGeometry(params.lng, params.lat, matcher.geometry)) {
+      return matcher.parentId;
+    }
+  }
+
+  return null;
+}
+
+function buildRegionMatchers(globalRegions: SeedPlace[]) {
+  const filePath = path.join(process.cwd(), ".cache", "natural-earth", "build", "world-adm1.geojson");
+  const collection = JSON.parse(readFileSync(filePath, "utf8")) as NaturalEarthAdm1Collection;
+  const regionByCode = new Map(globalRegions.map((region) => [region.code, region]));
+  const matchers = new Map<string, RegionMatcher[]>();
+
+  for (const feature of collection.features) {
+    const neId = feature.properties.ne_id;
+    const alpha3 = feature.properties.adm0_a3?.toUpperCase();
+    const region = neId ? regionByCode.get(`ne:${String(neId)}`) : null;
+    if (!alpha3 || !region) continue;
+
+    const countryMatchers = matchers.get(alpha3) ?? [];
+    countryMatchers.push({
+      parentId: region.id,
+      geometry: feature.geometry,
+      bbox: computeBBox(feature.geometry.coordinates),
+      names: new Set(
+        [region.name, region.nativeName, feature.properties.name, feature.properties.name_en]
+          .map(normalizeRegionName)
+          .filter((value): value is string => Boolean(value))
+      )
+    });
+    matchers.set(alpha3, countryMatchers);
+  }
+
+  return matchers;
+}
+
 function stripAdministrativeSuffix(name: string) {
   return name.replace(/(特别行政区|地区|盟|自治州|市)$/u, "");
+}
+
+function normalizeForMatch(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeRegionName(value?: string | null) {
+  if (!value) return null;
+
+  return normalizeForMatch(
+    value
+      .replace(
+        /\b(prefecture|province|state|metropolis|district|county|region|department|governorate|oblast|municipality|city)\b/gi,
+        ""
+      )
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+function computeBBox(coordinates: unknown): [number, number, number, number] {
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+
+  visitNestedCoordinates(coordinates, (lng, lat) => {
+    minLng = Math.min(minLng, lng);
+    minLat = Math.min(minLat, lat);
+    maxLng = Math.max(maxLng, lng);
+    maxLat = Math.max(maxLat, lat);
+  });
+
+  return [minLng, minLat, maxLng, maxLat];
+}
+
+function visitNestedCoordinates(coordinates: unknown, visitor: (lng: number, lat: number) => void) {
+  if (!Array.isArray(coordinates)) return;
+  if (typeof coordinates[0] === "number" && typeof coordinates[1] === "number") {
+    visitor(coordinates[0], coordinates[1]);
+    return;
+  }
+
+  for (const child of coordinates) visitNestedCoordinates(child, visitor);
+}
+
+function pointInBounds(lng: number, lat: number, bbox: [number, number, number, number]) {
+  return lng >= bbox[0] && lng <= bbox[2] && lat >= bbox[1] && lat <= bbox[3];
+}
+
+function pointInGeometry(
+  lng: number,
+  lat: number,
+  geometry: NaturalEarthAdm1Collection["features"][number]["geometry"]
+) {
+  if (geometry.type === "Polygon") {
+    return pointInPolygon(lng, lat, geometry.coordinates as number[][][]);
+  }
+
+  return (geometry.coordinates as number[][][][]).some((polygon) => pointInPolygon(lng, lat, polygon));
+}
+
+function pointInPolygon(lng: number, lat: number, polygon: number[][][]) {
+  if (!polygon.length) return false;
+  if (!pointInRing(lng, lat, polygon[0])) return false;
+
+  for (let index = 1; index < polygon.length; index += 1) {
+    if (pointInRing(lng, lat, polygon[index])) return false;
+  }
+
+  return true;
+}
+
+function pointInRing(lng: number, lat: number, ring: number[][]) {
+  let inside = false;
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
 }
 
 async function migrateLegacyChinaCityIds() {
@@ -303,10 +648,15 @@ async function main() {
 
   const countries = await loadCountries();
   for (const [index, country] of countries.entries()) {
-    await upsertPlace({ ...country, sortOrder: index }, PlaceLevel.COUNTRY);
+    await upsertPlace({ ...toSeedPlace(country), sortOrder: index }, PlaceLevel.COUNTRY);
   }
 
   for (const region of chinaRegions) {
+    await upsertPlace(region, PlaceLevel.REGION);
+  }
+
+  const globalRegions = buildGlobalRegions(countries);
+  for (const region of globalRegions) {
     await upsertPlace(region, PlaceLevel.REGION);
   }
 
@@ -318,6 +668,43 @@ async function main() {
 
   for (const city of internationalCities) {
     await upsertPlace(city, PlaceLevel.CITY);
+  }
+
+  for (const city of buildGlobalCities(countries, globalRegions)) {
+    await upsertPlace(city, PlaceLevel.CITY);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await recomputeDerivedVisits(tx);
+  });
+
+  const invalidCities = await prisma.place.findMany({
+    where: {
+      level: PlaceLevel.CITY,
+      parent: {
+        level: PlaceLevel.COUNTRY,
+        children: {
+          some: {
+            level: PlaceLevel.REGION
+          }
+        }
+      },
+      id: {
+        notIn: ["city-cn-hk-hongkong", "city-ne-1159151627"]
+      }
+    },
+    include: {
+      parent: true
+    },
+    take: 20
+  });
+
+  if (invalidCities.length) {
+    throw new Error(
+      `City rows still hanging under countries with regions: ${invalidCities
+        .map((city) => `${city.id}->${city.parentId}`)
+        .join(", ")}`
+    );
   }
 
   await prisma.mapLayerCache.create({

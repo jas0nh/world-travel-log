@@ -15,6 +15,10 @@ const antimeridianIsoNumerics = new Set([
   "643" // Russia
 ]);
 
+const cityStateCountryCodes = new Set(["SG"]);
+const cityStateCountryIds = new Set(["country-sg"]);
+type ChildVisitSummary = { visit: unknown };
+
 export function nextLevel(level?: PlaceLevel | null) {
   if (!level) return PlaceLevel.COUNTRY;
   return childLevelByParent[level];
@@ -27,6 +31,10 @@ export async function listPlaces(params: {
   const where: Prisma.PlaceWhereInput = {};
 
   if (params.parentId) {
+    if (cityStateCountryIds.has(params.parentId)) {
+      const countryCode = params.parentId.replace("country-", "").toUpperCase();
+      return listCityStateCities(countryCode);
+    }
     where.parentId = params.parentId;
   } else {
     where.level = params.level ?? PlaceLevel.COUNTRY;
@@ -44,27 +52,37 @@ export async function listPlaces(params: {
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
   });
 
-  return places.map<PlaceDto>((place) => ({
-    id: place.id,
-    name: place.name,
-    nativeName: place.nativeName,
-    level: place.level,
-    code: place.code,
-    isoNumeric: place.isoNumeric,
-    countryCode: place.countryCode,
-    lat: place.lat,
-    lng: place.lng,
-    parentId: place.parentId,
-    totalChildren: place.children.length,
-    visitedChildren: place.children.filter((child) => child.visit).length,
-    visited: Boolean(place.visit),
-    visitedAt: place.visit?.visitedAt?.toISOString() ?? null,
-    datePrecision: place.visit?.datePrecision ?? DatePrecision.UNKNOWN,
-    visitedYear: place.visit?.visitedYear ?? null,
-    visitedMonth: place.visit?.visitedMonth ?? null,
-    visitedDay: place.visit?.visitedDay ?? null,
-    note: place.visit?.note ?? null
-  }));
+  const cityStateChildren = !params.parentId
+    ? await loadCityStateChildren()
+    : new Map<string, ChildVisitSummary[]>();
+
+  return places.map<PlaceDto>((place) => {
+    const visibleChildren = cityStateChildren.get(place.id);
+    const children = visibleChildren ?? place.children;
+
+    return {
+      id: place.id,
+      name: place.name,
+      nativeName: place.nativeName,
+      level: place.level,
+      code: place.code,
+      isoNumeric: place.isoNumeric,
+      countryCode: place.countryCode,
+      lat: place.lat,
+      lng: place.lng,
+      parentId: place.parentId,
+      totalChildren: children.length,
+      visitedChildren: children.filter((child) => child.visit).length,
+      visited: Boolean(place.visit),
+      visitedAt: place.visit?.visitedAt?.toISOString() ?? null,
+      datePrecision: place.visit?.datePrecision ?? DatePrecision.UNKNOWN,
+      visitedYear: place.visit?.visitedYear ?? null,
+      visitedMonth: place.visit?.visitedMonth ?? null,
+      visitedDay: place.visit?.visitedDay ?? null,
+      isDerived: place.visit?.isDerived ?? false,
+      note: place.visit?.note ?? null
+    };
+  });
 }
 
 export async function getProgress(parentId?: string | null): Promise<ProgressDto> {
@@ -96,6 +114,7 @@ export async function getOverview(): Promise<OverviewDto> {
       include: { visit: true }
     }),
     prisma.visit.findMany({
+      where: { isDerived: false },
       include: {
         place: {
           include: { parent: true }
@@ -161,6 +180,78 @@ function progressFromPlaces(
     total: places.length,
     visited: places.filter((place) => place.visit).length
   };
+}
+
+async function listCityStateCities(countryCode: string) {
+  const places = await prisma.place.findMany({
+    where: {
+      countryCode,
+      level: PlaceLevel.CITY
+    },
+    include: {
+      visit: true,
+      children: {
+        include: { visit: true }
+      }
+    },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
+  });
+
+  return places.map<PlaceDto>((place) => ({
+    id: place.id,
+    name: place.name,
+    nativeName: place.nativeName,
+    level: place.level,
+    code: place.code,
+    isoNumeric: place.isoNumeric,
+    countryCode: place.countryCode,
+    lat: place.lat,
+    lng: place.lng,
+    parentId: place.parentId,
+    totalChildren: place.children.length,
+    visitedChildren: place.children.filter((child) => child.visit).length,
+    visited: Boolean(place.visit),
+    visitedAt: place.visit?.visitedAt?.toISOString() ?? null,
+    datePrecision: place.visit?.datePrecision ?? DatePrecision.UNKNOWN,
+    visitedYear: place.visit?.visitedYear ?? null,
+    visitedMonth: place.visit?.visitedMonth ?? null,
+    visitedDay: place.visit?.visitedDay ?? null,
+    isDerived: place.visit?.isDerived ?? false,
+    note: place.visit?.note ?? null
+  }));
+}
+
+async function loadCityStateChildren() {
+  const countries = await prisma.place.findMany({
+    where: {
+      parentId: null,
+      level: PlaceLevel.COUNTRY,
+      code: { in: [...cityStateCountryCodes] }
+    },
+    select: { id: true, code: true }
+  });
+
+  if (!countries.length) return new Map<string, ChildVisitSummary[]>();
+
+  const children = await prisma.place.findMany({
+    where: {
+      countryCode: {
+        in: countries.map((country) => country.code).filter((code): code is string => Boolean(code))
+      },
+      level: PlaceLevel.CITY
+    },
+    include: { visit: true }
+  });
+
+  const childrenByCountryId = new Map<string, ChildVisitSummary[]>();
+  for (const country of countries) {
+    childrenByCountryId.set(
+      country.id,
+      children.filter((child) => child.countryCode === country.code)
+    );
+  }
+
+  return childrenByCountryId;
 }
 
 export function formatVisitDate(
@@ -245,6 +336,7 @@ type BoundaryFeature = {
   properties: {
     name?: string;
     isoNumeric?: string;
+    ne_id?: number | string;
   };
   geometry: BoundaryGeometry;
 };
@@ -256,6 +348,7 @@ type BoundaryCollection = {
 
 let chinaAdm1Cache: BoundaryCollection | null = null;
 let worldCountryCache: BoundaryCollection | null = null;
+let worldAdm1Cache: BoundaryCollection | null = null;
 
 async function getBoundaryGeometries(parentId?: string | null) {
   const geometries = new Map<string, BoundaryGeometry>();
@@ -290,6 +383,28 @@ async function getBoundaryGeometries(parentId?: string | null) {
   }
 
   if (parentId !== "country-cn") {
+    const boundaries = loadWorldAdm1Boundaries();
+    if (!boundaries) return geometries;
+
+    const places = await prisma.place.findMany({
+      where: { parentId, level: PlaceLevel.REGION },
+      select: { id: true, code: true }
+    });
+    const placeByCode = new Map(
+      places
+        .filter((place) => place.code)
+        .map((place) => [place.code, place])
+    );
+
+    for (const feature of boundaries.features) {
+      const neId = feature.properties.ne_id;
+      if (!neId) continue;
+      const place = placeByCode.get(`ne:${String(neId)}`);
+      if (place && isAreaGeometry(feature.geometry)) {
+        geometries.set(place.id, feature.geometry);
+      }
+    }
+
     return geometries;
   }
 
@@ -331,6 +446,18 @@ function loadWorldCountryBoundaries() {
     worldCountryCache = JSON.parse(readFileSync(filePath, "utf8")) as BoundaryCollection;
   }
   return worldCountryCache;
+}
+
+function loadWorldAdm1Boundaries() {
+  if (worldAdm1Cache) return worldAdm1Cache;
+
+  const filePath = path.join(process.cwd(), ".cache", "natural-earth", "build", "world-adm1.geojson");
+  try {
+    worldAdm1Cache = JSON.parse(readFileSync(filePath, "utf8")) as BoundaryCollection;
+  } catch {
+    worldAdm1Cache = null;
+  }
+  return worldAdm1Cache;
 }
 
 function isAreaGeometry(geometry: BoundaryGeometry): geometry is Extract<BoundaryGeometry, { type: "Polygon" | "MultiPolygon" }> {

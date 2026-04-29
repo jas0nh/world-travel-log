@@ -34,8 +34,11 @@ const nextLayerLabel: Record<PlaceLevel, string> = {
   CITY: "城市详情"
 };
 
+const cityStateCountryCodes = new Set(["SG"]);
+
 export default function TravelMapApp() {
   const [parentId, setParentId] = useState<string | null>(null);
+  const [skipFitToken, setSkipFitToken] = useState(0);
   const [places, setPlaces] = useState<PlaceDto[]>([]);
   const [layer, setLayer] = useState<MapLayerDto | null>(null);
   const [rootPlaces, setRootPlaces] = useState<PlaceDto[]>([]);
@@ -120,6 +123,7 @@ export default function TravelMapApp() {
     if (!breadcrumb.length) return;
     const parent = breadcrumb.at(-2);
     setQuery("");
+    if (!parent?.id) setSkipFitToken((current) => current + 1);
     setParentId(parent?.id ?? null);
   };
 
@@ -145,6 +149,13 @@ export default function TravelMapApp() {
     if (!country) return;
 
     setQuery("");
+    if (currentLevel !== "COUNTRY") {
+      setSkipFitToken((current) => current + 1);
+      setParentId(null);
+      setSelected(null);
+      return;
+    }
+
     if (country.totalChildren > 0) {
       setParentId(country.id);
       setSelected(null);
@@ -242,6 +253,7 @@ export default function TravelMapApp() {
         <nav className="crumbs" aria-label="当前位置">
           <button onClick={() => {
             setQuery("");
+            setSkipFitToken((current) => current + 1);
             setParentId(null);
           }}>世界</button>
           {breadcrumb.map((item) => (
@@ -313,7 +325,7 @@ export default function TravelMapApp() {
                       <strong>{place.nativeName ?? place.name}</strong>
                       <small>
                         {place.totalChildren > 0
-                          ? `${place.visitedChildren}/${place.totalChildren} ${nextLayerLabel[place.level]}`
+                          ? `${place.visitedChildren}/${place.totalChildren} ${getNextLayerLabel(place)}`
                           : place.visited
                             ? formatPlaceDate(place)
                             : "未去过"}
@@ -337,6 +349,7 @@ export default function TravelMapApp() {
             layer={layer}
             contextLayer={parentId ? rootLayer : null}
             selectedId={selected?.id ?? null}
+            skipFitToken={skipFitToken}
             onSelect={(id) => {
               const place = places.find((item) => item.id === id);
               if (place) openPlace(place);
@@ -387,13 +400,13 @@ export default function TravelMapApp() {
               <button className="primary" onClick={saveVisit}>
                 标记去过
               </button>
-              <button className="ghost" onClick={removeVisit} disabled={!selected.visited}>
+              <button className="ghost" onClick={removeVisit} disabled={!selected.visited || selected.isDerived}>
                 取消标记
               </button>
             </div>
             {selected.totalChildren > 0 && (
               <button className="wide" onClick={() => drillInto(selected)}>
-                {nextLayerLabel[selected.level]}
+                {getNextLayerLabel(selected)}
               </button>
             )}
           </>
@@ -502,6 +515,13 @@ function formatPlaceDate(place: PlaceDto) {
     return String(place.visitedYear);
   }
   return "日期未填";
+}
+
+function getNextLayerLabel(place: PlaceDto) {
+  if (place.level === "COUNTRY" && place.countryCode && cityStateCountryCodes.has(place.countryCode)) {
+    return nextLayerLabel.CITY;
+  }
+  return nextLayerLabel[place.level];
 }
 
 function onlyDigits(value: string, maxLength: number) {

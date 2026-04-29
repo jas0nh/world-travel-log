@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
+import { recomputeDerivedVisits } from "@/app/lib/visit-logic";
 
 export async function DELETE(
   _request: Request,
@@ -7,8 +8,12 @@ export async function DELETE(
 ) {
   const { placeId } = await context.params;
 
-  await prisma.visit.deleteMany({
-    where: { placeId }
+  await prisma.$transaction(async (tx) => {
+    await tx.visit.deleteMany({
+      where: { placeId, isDerived: false }
+    });
+
+    await recomputeDerivedVisits(tx);
   });
 
   return NextResponse.json({ ok: true });

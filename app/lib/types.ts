@@ -19,6 +19,7 @@ export type PlaceDto = {
   visitedYear: number | null;
   visitedMonth: number | null;
   visitedDay: number | null;
+  isDerived: boolean;
   note: string | null;
 };
 
