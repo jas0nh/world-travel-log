@@ -3,7 +3,7 @@ import { DatePrecision, type Prisma } from "@prisma/client";
 type PlaceNode = {
   id: string;
   children: Array<{ id: string }>;
-  visit: {
+  visits: Array<{
     visitedAt: Date | null;
     datePrecision: DatePrecision;
     visitedYear: number | null;
@@ -11,7 +11,7 @@ type PlaceNode = {
     visitedDay: number | null;
     isDerived: boolean;
     note: string | null;
-  } | null;
+  }>;
 };
 
 type VisitPayload = {
@@ -26,12 +26,15 @@ type EffectiveVisit = VisitPayload & {
   note: string | null;
 };
 
-const forcedDerivedLinks = [{ parentId: "country-sg", childId: "city-ne-1159151627" }];
+const forcedDerivedLinks = [
+  { parentId: "country-sg", childId: "city-ne-1159151627" },
+  { parentId: "country-hk", childId: "city-cn-hk-hongkong" }
+];
 
-export async function recomputeDerivedVisits(tx: Prisma.TransactionClient) {
+export async function recomputeDerivedVisits(tx: Prisma.TransactionClient, userId: string) {
   const places = await tx.place.findMany({
     include: {
-      visit: true,
+      visits: { where: { userId } },
       children: { select: { id: true } }
     }
   });
@@ -40,9 +43,10 @@ export async function recomputeDerivedVisits(tx: Prisma.TransactionClient) {
   const currentDerivedIds = new Set<string>();
 
   for (const place of places as PlaceNode[]) {
-    if (!place.visit) continue;
-    if (place.visit.isDerived) currentDerivedIds.add(place.id);
-    else explicitVisits.set(place.id, toEffectiveVisit(place.visit));
+    const visit = place.visits[0];
+    if (!visit) continue;
+    if (visit.isDerived) currentDerivedIds.add(place.id);
+    else explicitVisits.set(place.id, toEffectiveVisit(visit));
   }
 
   const effectiveVisits = new Map(explicitVisits);
@@ -124,6 +128,7 @@ export async function recomputeDerivedVisits(tx: Prisma.TransactionClient) {
   if (staleDerivedIds.length) {
     await tx.visit.deleteMany({
       where: {
+        userId,
         placeId: { in: staleDerivedIds },
         isDerived: true
       }
@@ -132,8 +137,9 @@ export async function recomputeDerivedVisits(tx: Prisma.TransactionClient) {
 
   for (const [placeId, visit] of derivedVisits) {
     await tx.visit.upsert({
-      where: { placeId },
+      where: { userId_placeId: { userId, placeId } },
       create: {
+        userId,
         placeId,
         ...visit,
         isDerived: true

@@ -10,7 +10,9 @@ import maplibregl, {
   StyleSpecification
 } from "maplibre-gl";
 import { Protocol } from "pmtiles";
+import { Crosshair, Globe2 } from "lucide-react";
 import { useEffect, useRef } from "react";
+import type { MouseEvent } from "react";
 import type { FeatureCollection } from "geojson";
 import type { MapFeature, MapLayerDto } from "@/app/lib/types";
 
@@ -22,6 +24,8 @@ type Props = {
   onSelect: (id: string) => void;
   onDrill: (id: string) => void;
   onJump: (id: string) => void;
+  onBack: () => void;
+  onWorld: () => void;
 };
 
 const CURRENT_SOURCE = "current-places";
@@ -34,6 +38,7 @@ const CURRENT_CIRCLE = "current-places-circle";
 const INTERACTIVE_LAYERS = [CURRENT_FILL, CURRENT_CIRCLE] as const;
 const AREA_FILTER: FilterSpecification = ["==", "$type", "Polygon"];
 const POINT_FILTER: FilterSpecification = ["==", "$type", "Point"];
+const NON_COUNTRY_POINT_FILTER: FilterSpecification = ["all", POINT_FILTER, ["!=", "level", "COUNTRY"]];
 const HIT_TOLERANCE = 22;
 
 let protocolRefCount = 0;
@@ -62,7 +67,9 @@ export default function TravelMap({
   skipFitToken,
   onSelect,
   onDrill,
-  onJump
+  onJump,
+  onBack,
+  onWorld
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -71,6 +78,8 @@ export default function TravelMap({
   const onSelectRef = useRef(onSelect);
   const onDrillRef = useRef(onDrill);
   const onJumpRef = useRef(onJump);
+  const onBackRef = useRef(onBack);
+  const onWorldRef = useRef(onWorld);
   const layerRef = useRef(layer);
   const layerViewKeyRef = useRef(getLayerViewKey(layer));
   const skipFitTokenRef = useRef(skipFitToken);
@@ -94,6 +103,14 @@ export default function TravelMap({
   useEffect(() => {
     onJumpRef.current = onJump;
   }, [onJump]);
+
+  useEffect(() => {
+    onBackRef.current = onBack;
+  }, [onBack]);
+
+  useEffect(() => {
+    onWorldRef.current = onWorld;
+  }, [onWorld]);
 
   useEffect(() => {
     skipFitTokenRef.current = skipFitToken;
@@ -160,6 +177,17 @@ export default function TravelMap({
       if (id) onJumpRef.current(id);
     };
 
+    const handleMapClick = (event: maplibregl.MapMouseEvent) => {
+      if (!hasParentView(layerRef.current)) return;
+
+      const currentFeature = map.queryRenderedFeatures(event.point, {
+        layers: [CURRENT_CIRCLE, CURRENT_FILL]
+      })[0];
+      if (getFeatureId(currentFeature)) return;
+
+      onBackRef.current();
+    };
+
     const handleMouseEnter = () => {
       map.getCanvas().style.cursor = "pointer";
     };
@@ -192,6 +220,7 @@ export default function TravelMap({
     }
 
     map.on("click", CONTEXT_FILL, handleJump);
+    map.on("click", handleMapClick);
     map.on("mouseenter", CONTEXT_FILL, handleMouseEnter);
     map.on("mouseleave", CONTEXT_FILL, handleMouseLeave);
 
@@ -240,7 +269,51 @@ export default function TravelMap({
     else map.once("load", updateContext);
   }, [contextLayer]);
 
-  return <div ref={containerRef} className="mapCanvas" />;
+  const stopControlEvent = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleWorldClick = (event: MouseEvent) => {
+    stopControlEvent(event);
+    if (hasParentView(layerRef.current)) {
+      onWorldRef.current();
+      return;
+    }
+    if (mapRef.current) fitLayer(mapRef.current, layerRef.current, true);
+  };
+
+  const handleRecenterClick = (event: MouseEvent) => {
+    stopControlEvent(event);
+    if (mapRef.current) fitSelectedOrLayer(mapRef.current, layerRef.current, selectedIdRef.current);
+  };
+
+  return (
+    <div ref={containerRef} className="mapCanvas">
+      <div className="mapQuickControls" aria-label="地图快捷操作">
+        <button
+          type="button"
+          title="回到世界地图"
+          aria-label="回到世界地图"
+          onClick={handleWorldClick}
+          onMouseDown={stopControlEvent}
+          onDoubleClick={stopControlEvent}
+        >
+          <Globe2 size={17} />
+        </button>
+        <button
+          type="button"
+          title="居中当前选中区域"
+          aria-label="居中当前选中区域"
+          onClick={handleRecenterClick}
+          onMouseDown={stopControlEvent}
+          onDoubleClick={stopControlEvent}
+        >
+          <Crosshair size={17} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): StyleSpecification {
@@ -375,7 +448,7 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         id: CURRENT_CIRCLE,
         type: "circle",
         source: CURRENT_SOURCE,
-        filter: POINT_FILTER,
+        filter: NON_COUNTRY_POINT_FILTER,
         paint: {
           "circle-radius": [
             "case",
@@ -473,6 +546,10 @@ function isPointLayer(layer: MapLayerDto) {
   return layer.features.some((feature) => feature.geometry.type === "Point");
 }
 
+function hasParentView(layer: MapLayerDto) {
+  return layer.features.some((feature) => Boolean(feature.properties.parentId));
+}
+
 function fitLayer(map: MapLibreMap, layer: MapLayerDto, animate: boolean) {
   const bounds = getLayerBounds(layer);
   if (!bounds) return;
@@ -483,6 +560,25 @@ function fitLayer(map: MapLibreMap, layer: MapLayerDto, animate: boolean) {
     padding: 48,
     maxZoom: layer.features.length === 1 ? 5 : 4
   });
+}
+
+function fitSelectedOrLayer(map: MapLibreMap, layer: MapLayerDto, selectedId: string | null) {
+  const selectedFeature = selectedId ? layer.features.find((feature) => feature.id === selectedId) : null;
+  const bounds = selectedFeature ? getFeatureBounds(selectedFeature) : getLayerBounds(layer);
+  if (!bounds) return;
+
+  map.resize();
+  map.fitBounds(bounds, {
+    animate: true,
+    padding: selectedFeature ? 76 : 48,
+    maxZoom: selectedFeature ? 6 : layer.features.length === 1 ? 5 : 4
+  });
+}
+
+function getFeatureBounds(feature: MapFeature) {
+  const bounds = new LngLatBounds();
+  visitCoordinates(feature.geometry.coordinates, (lng, lat) => bounds.extend([lng, lat]));
+  return bounds.isEmpty() ? null : bounds;
 }
 
 function getLayerCenter(layer: MapLayerDto): [number, number] {

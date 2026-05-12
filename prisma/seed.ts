@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { recomputeDerivedVisits } from "../app/lib/visit-logic";
+import { appUsers, defaultUserId } from "../app/lib/users";
 
 const prisma = new PrismaClient();
 const require = createRequire(import.meta.url);
@@ -410,6 +411,10 @@ function buildGlobalCities(countries: CountrySeed[], globalRegions: SeedPlace[])
     ["MAC:macau", "city-cn-mo-macau"],
     ["HKG:hong-kong", "city-cn-hk-hongkong"]
   ]);
+  const cityNativeNameOverrides = new Map<string, string>([
+    ["SGP:singapore", "新加坡"],
+    ["MCO:monaco", "摩纳哥"]
+  ]);
 
   return collection.features.flatMap<SeedPlace>((feature) => {
     const alpha3 = feature.properties.ADM0_A3?.toUpperCase();
@@ -445,7 +450,7 @@ function buildGlobalCities(countries: CountrySeed[], globalRegions: SeedPlace[])
       {
         id: cityIdOverrides.get(cityKey) ?? `city-ne-${neId}`,
         name: cityName,
-        nativeName,
+        nativeName: cityNativeNameOverrides.get(cityKey) ?? nativeName,
         code: `ne:${String(neId)}`,
         countryCode,
         lat,
@@ -618,7 +623,7 @@ function pointInRing(lng: number, lat: number, ring: number[][]) {
 async function migrateLegacyChinaCityIds() {
   for (const [legacyId, stableId] of Object.entries(legacyChinaCityIds)) {
     const [legacy, stable] = await Promise.all([
-      prisma.place.findUnique({ where: { id: legacyId }, include: { visit: true } }),
+      prisma.place.findUnique({ where: { id: legacyId } }),
       prisma.place.findUnique({ where: { id: stableId } })
     ]);
     if (!legacy || stable) continue;
@@ -645,6 +650,14 @@ async function upsertPlace(place: SeedPlace, level: PlaceLevel) {
 
 async function main() {
   await prisma.mapLayerCache.deleteMany();
+
+  for (const user of appUsers) {
+    await prisma.user.upsert({
+      where: { id: user.id },
+      create: user,
+      update: user
+    });
+  }
 
   const countries = await loadCountries();
   for (const [index, country] of countries.entries()) {
@@ -675,7 +688,7 @@ async function main() {
   }
 
   await prisma.$transaction(async (tx) => {
-    await recomputeDerivedVisits(tx);
+    await recomputeDerivedVisits(tx, defaultUserId);
   });
 
   const invalidCities = await prisma.place.findMany({

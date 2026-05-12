@@ -76,6 +76,12 @@ button:disabled {
   gap: 16px;
 }
 
+.headerActions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
 .eyebrow {
   color: var(--accent);
   font-size: 12px;
@@ -111,6 +117,23 @@ h2 {
   height: 38px;
   justify-content: center;
   width: 38px;
+}
+
+.userSwitch {
+  align-items: center;
+  background: #fffaf1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  display: inline-flex;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.userSwitch span {
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .crumbs {
@@ -221,7 +244,7 @@ h2 {
   border-radius: 8px;
   display: grid;
   gap: 4px;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   margin-bottom: 14px;
   padding: 4px;
 }
@@ -312,6 +335,37 @@ h2 {
 .mapLoading {
   height: 100%;
   width: 100%;
+}
+
+.mapCanvas {
+  position: relative;
+}
+
+.mapQuickControls {
+  display: grid;
+  gap: 8px;
+  left: 14px;
+  position: absolute;
+  top: 14px;
+  z-index: 10;
+}
+
+.mapQuickControls button {
+  align-items: center;
+  background: rgba(255, 250, 241, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(22, 32, 27, 0.14);
+  color: var(--ink);
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  padding: 0;
+  width: 38px;
+}
+
+.mapQuickControls button:hover {
+  background: #fffaf1;
 }
 
 .maplibregl-popup {
@@ -499,6 +553,138 @@ h2 {
   width: 100%;
 }
 
+.correctionOverlay {
+  background: #f7f3ea;
+  display: flex;
+  flex-direction: column;
+  inset: 0;
+  overflow: hidden;
+  padding: 28px;
+  position: fixed;
+  z-index: 80;
+}
+
+.correctionHeader {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+}
+
+.correctionHeader h2 {
+  font-size: 34px;
+}
+
+.correctionList {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.correctionNode,
+.correctionChildren {
+  display: grid;
+  gap: 5px;
+}
+
+.correctionRow {
+  align-items: center;
+  background: rgba(255, 250, 241, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(220px, 0.8fr) 116px minmax(460px, 1.8fr);
+  margin-left: calc(var(--depth) * 18px);
+  min-height: 44px;
+  padding: 6px 9px;
+}
+
+.correctionRow.groupOnly {
+  background: rgba(22, 32, 27, 0.04);
+  grid-template-columns: minmax(220px, 1fr) 116px;
+}
+
+.correctionRow.editable.noChildren {
+  grid-template-columns: minmax(220px, 0.8fr) minmax(460px, 1.8fr);
+}
+
+.correctionRow.groupOnly.noChildren {
+  grid-template-columns: 1fr;
+}
+
+.correctionPlace {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.correctionPlace span,
+.correctionPlace small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.correctionPlace strong {
+  font-size: 14px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.correctionFields {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 168px minmax(220px, 1fr) 88px;
+}
+
+.dateParts.compact input,
+.correctionNote {
+  background: #fffaf1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  min-width: 0;
+  outline: 0;
+  padding: 7px 8px;
+  width: 100%;
+}
+
+.dateParts.compact input {
+  height: 30px;
+  text-align: center;
+}
+
+.correctionOpen {
+  font-size: 13px;
+  line-height: 1;
+  min-height: 32px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.correctionSave {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+  line-height: 1;
+  min-height: 32px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
 .inspectorEmpty {
   height: 100%;
 }
@@ -531,23 +717,261 @@ h2 {
 }
 
 @media (max-width: 760px) {
+  html,
+  body {
+    overflow: hidden;
+  }
+
   .workspace {
-    display: block;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: 100svh;
+    overflow: hidden;
   }
 
   .panel {
-    border-width: 0 0 1px;
-    min-height: auto;
-    padding: 16px;
+    border-width: 1px 0 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -16px 42px rgba(22, 32, 27, 0.18);
+    grid-column: 1;
+    grid-row: 2;
+    height: min(44svh, 390px);
+    min-height: 250px;
+    overflow: hidden;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    z-index: 25;
+  }
+
+  .brand {
+    align-items: center;
+  }
+
+  .brand .eyebrow {
+    display: none;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  h2 {
+    font-size: 23px;
+  }
+
+  .iconButton {
+    height: 34px;
+    width: 34px;
+  }
+
+  .headerActions {
+    gap: 6px;
+  }
+
+  .userSwitch {
+    min-height: 34px;
+    padding: 0 9px;
+  }
+
+  .crumbs {
+    flex-wrap: nowrap;
+    gap: 10px;
+    margin: 10px 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    white-space: nowrap;
+  }
+
+  .viewTabs {
+    margin-bottom: 10px;
+  }
+
+  .viewTabs button {
+    min-height: 34px;
+  }
+
+  .progressBlock {
+    padding: 12px 0;
+  }
+
+  .progressBlock strong {
+    font-size: 26px;
+  }
+
+  .progressBlock p {
+    font-size: 13px;
+    margin-top: 8px;
+  }
+
+  .meter {
+    margin-top: 10px;
+  }
+
+  .searchRow {
+    margin-top: 10px;
+  }
+
+  .searchRow input {
+    padding: 10px 0;
+  }
+
+  .segmented {
+    margin: 10px 0;
   }
 
   .placeList {
-    max-height: 260px;
+    gap: 4px;
+    min-height: 0;
   }
 
-  .mapStage,
+  .placeItem {
+    grid-template-columns: 26px 1fr;
+    padding: 8px 6px;
+  }
+
+  .placeItem strong {
+    font-size: 14px;
+  }
+
+  .pin {
+    height: 26px;
+    width: 26px;
+  }
+
+  .mapStage {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    height: 100svh;
+    min-height: 0;
+  }
+
   .mapCanvas,
   .mapLoading {
-    min-height: 58svh;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .maplibregl-ctrl-top-right {
+    top: 10px;
+    right: 10px;
+  }
+
+  .mapQuickControls {
+    left: 10px;
+    top: 10px;
+  }
+
+  .mapQuickControls button {
+    height: 36px;
+    width: 36px;
+  }
+
+  .maplibregl-ctrl-bottom-right {
+    bottom: calc(min(44svh, 390px) + 8px);
+  }
+
+  .inspector {
+    border-width: 1px 0 0;
+    border-radius: 16px 16px 0 0;
+    bottom: 0;
+    box-shadow: 0 -16px 42px rgba(22, 32, 27, 0.22);
+    left: 0;
+    max-height: 72svh;
+    overflow: auto;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    position: fixed;
+    right: 0;
+    top: auto;
+    transform: translateY(calc(100% + 24px));
+    transition: transform 180ms ease;
+    width: auto;
+    z-index: 40;
+  }
+
+  .inspector.open {
+    transform: translateY(0);
+  }
+
+  .inspector .close {
+    right: 14px;
+    top: 14px;
+  }
+
+  .inspector h2 {
+    padding-right: 38px;
+  }
+
+  .inspector label {
+    margin-top: 16px;
+  }
+
+  .inspector textarea {
+    min-height: 96px;
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .overviewPane {
+    gap: 14px;
+  }
+
+  .overviewStats {
+    gap: 8px;
+  }
+
+  .statBlock strong {
+    font-size: 22px;
+  }
+
+  .correctionOverlay {
+    padding: 16px;
+  }
+
+  .correctionHeader {
+    align-items: center;
+  }
+
+  .correctionHeader h2 {
+    font-size: 25px;
+  }
+
+  .correctionRow {
+    gap: 10px;
+    grid-template-columns: 1fr;
+    padding: 10px;
+  }
+
+  .correctionFields {
+    grid-template-columns: 1fr;
+  }
+
+  .correctionSave {
+    min-height: 38px;
+  }
+}
+
+@media (max-width: 430px) {
+  .panel {
+    height: min(48svh, 390px);
+    min-height: 270px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .maplibregl-ctrl-bottom-right {
+    bottom: calc(min(48svh, 390px) + 8px);
+  }
+
+  .dateParts {
+    gap: 6px;
+  }
+
+  .primary,
+  .ghost,
+  .wide,
+  .correctionSave {
+    min-height: 44px;
   }
 }

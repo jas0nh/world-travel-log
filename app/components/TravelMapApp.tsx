@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { ArrowLeft, BarChart3, Check, Map, MapPin, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, BarChart3, Check, Database, Map, MapPin, Save, Search, UserRound, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { DatePrecision, type PlaceLevel } from "@prisma/client";
-import type { MapLayerDto, OverviewDto, PlaceDto } from "@/app/lib/types";
+import type { CorrectionNodeDto, CorrectionsDto, MapLayerDto, OverviewDto, PlaceDto } from "@/app/lib/types";
+import { appUsers, defaultUserId } from "@/app/lib/users";
 
 const TravelMap = dynamic(() => import("./TravelMap"), {
   ssr: false,
@@ -24,20 +25,19 @@ type PlaceResponse = {
 
 const levelLabels: Record<PlaceLevel, string> = {
   COUNTRY: "国家/地区",
-  REGION: "地区",
+  REGION: "行政区",
   CITY: "城市"
 };
 
-const nextLayerLabel: Record<PlaceLevel, string> = {
-  COUNTRY: "查看地区",
-  REGION: "查看城市",
-  CITY: "城市详情"
+const nextLayerLabel: Record<PlaceLevel, string | null> = {
+  COUNTRY: "查看行政区",
+  REGION: "查看地点",
+  CITY: null
 };
-
-const cityStateCountryCodes = new Set(["SG"]);
 
 export default function TravelMapApp() {
   const [parentId, setParentId] = useState<string | null>(null);
+  const [activeUserId, setActiveUserId] = useState(defaultUserId);
   const [skipFitToken, setSkipFitToken] = useState(0);
   const [places, setPlaces] = useState<PlaceDto[]>([]);
   const [layer, setLayer] = useState<MapLayerDto | null>(null);
@@ -51,25 +51,37 @@ export default function TravelMapApp() {
   const [visitedYear, setVisitedYear] = useState("");
   const [visitedMonth, setVisitedMonth] = useState("");
   const [visitedDay, setVisitedDay] = useState("");
-  const [activeTab, setActiveTab] = useState<"map" | "overview">("map");
+  const [activeTab, setActiveTab] = useState<"map" | "overview" | "correction">("map");
   const [overview, setOverview] = useState<OverviewDto | null>(null);
+  const [corrections, setCorrections] = useState<CorrectionsDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const load = useCallback(async (nextParentId: string | null) => {
-    setIsLoading(true);
-    const suffix = nextParentId ? `?parentId=${nextParentId}` : "";
-    const [placeResponse, layerResponse] = await Promise.all([
-      fetch(`/api/places${suffix}`),
-      fetch(`/api/map-layer${suffix}`)
-    ]);
-    const placeData = (await placeResponse.json()) as PlaceResponse;
-    const layerData = (await layerResponse.json()) as MapLayerDto;
-    setPlaces(placeData.places);
-    setLayer(layerData);
-    setBreadcrumb(placeData.breadcrumb);
-    setSelected(null);
-    setIsLoading(false);
-  }, []);
+  const activeUser = appUsers.find((user) => user.id === activeUserId) ?? appUsers[0];
+  const userQuery = useCallback(
+    (prefix = "?") => `${prefix}userId=${encodeURIComponent(activeUserId)}`,
+    [activeUserId]
+  );
+
+  const load = useCallback(
+    async (nextParentId: string | null) => {
+      setIsLoading(true);
+      const suffix = nextParentId
+        ? `?parentId=${encodeURIComponent(nextParentId)}&userId=${encodeURIComponent(activeUserId)}`
+        : userQuery();
+      const [placeResponse, layerResponse] = await Promise.all([
+        fetch(`/api/places${suffix}`),
+        fetch(`/api/map-layer${suffix}`)
+      ]);
+      const placeData = (await placeResponse.json()) as PlaceResponse;
+      const layerData = (await layerResponse.json()) as MapLayerDto;
+      setPlaces(placeData.places);
+      setLayer(layerData);
+      setBreadcrumb(placeData.breadcrumb);
+      setSelected(null);
+      setIsLoading(false);
+    },
+    [activeUserId, userQuery]
+  );
 
   useEffect(() => {
     void load(parentId);
@@ -77,9 +89,10 @@ export default function TravelMapApp() {
 
   useEffect(() => {
     const loadRootContext = async () => {
+      const suffix = userQuery();
       const [placeResponse, layerResponse] = await Promise.all([
-        fetch("/api/places"),
-        fetch("/api/map-layer")
+        fetch(`/api/places${suffix}`),
+        fetch(`/api/map-layer${suffix}`)
       ]);
       const placeData = (await placeResponse.json()) as PlaceResponse;
       const layerData = (await layerResponse.json()) as MapLayerDto;
@@ -88,17 +101,24 @@ export default function TravelMapApp() {
     };
 
     void loadRootContext();
-  }, []);
+  }, [userQuery]);
 
   const loadOverview = useCallback(async () => {
-    const response = await fetch("/api/overview");
+    const response = await fetch(`/api/overview${userQuery()}`);
     const data = (await response.json()) as OverviewDto;
     setOverview(data);
-  }, []);
+  }, [userQuery]);
+
+  const loadCorrections = useCallback(async () => {
+    const response = await fetch(`/api/corrections${userQuery()}`);
+    const data = (await response.json()) as CorrectionsDto;
+    setCorrections(data);
+  }, [userQuery]);
 
   useEffect(() => {
     if (activeTab === "overview") void loadOverview();
-  }, [activeTab, loadOverview]);
+    if (activeTab === "correction") void loadCorrections();
+  }, [activeTab, loadCorrections, loadOverview]);
 
   const currentLevel = places[0]?.level ?? "COUNTRY";
   const visitedCount = places.filter((place) => place.visited).length;
@@ -125,6 +145,22 @@ export default function TravelMapApp() {
     setQuery("");
     if (!parent?.id) setSkipFitToken((current) => current + 1);
     setParentId(parent?.id ?? null);
+  };
+
+  const goWorld = () => {
+    setQuery("");
+    setSelected(null);
+    setParentId(null);
+  };
+
+  const switchUser = () => {
+    setActiveUserId((currentUserId) => {
+      const currentIndex = appUsers.findIndex((user) => user.id === currentUserId);
+      return appUsers[(currentIndex + 1) % appUsers.length].id;
+    });
+    setSelected(null);
+    setOverview(null);
+    setCorrections(null);
   };
 
   const openPlace = (place: PlaceDto) => {
@@ -217,6 +253,7 @@ export default function TravelMapApp() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        userId: activeUserId,
         placeId: selected.id,
         ...datePayload,
         note: note || null
@@ -230,10 +267,28 @@ export default function TravelMapApp() {
 
   const removeVisit = async () => {
     if (!selected) return;
-    const response = await fetch(`/api/visits/${selected.id}`, { method: "DELETE" });
+    const response = await fetch(`/api/visits/${selected.id}${userQuery()}`, { method: "DELETE" });
     if (response.ok) {
       updateVisitState(selected.id, false);
       if (activeTab === "overview") void loadOverview();
+    }
+  };
+
+  const saveCorrection = async (node: CorrectionNodeDto, edit: CorrectionEdit) => {
+    const datePayload = getDatePayload(edit.visitedYear, edit.visitedMonth, edit.visitedDay);
+    const response = await fetch("/api/visits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: activeUserId,
+        placeId: node.id,
+        ...datePayload,
+        note: edit.note || null
+      })
+    });
+    if (response.ok) {
+      await Promise.all([load(parentId), loadCorrections()]);
+      setOverview(null);
     }
   };
 
@@ -245,9 +300,15 @@ export default function TravelMapApp() {
             <p className="eyebrow">Travel Map</p>
             <h1>旅记地图</h1>
           </div>
-          <button className="iconButton" onClick={goBack} disabled={!breadcrumb.length} title="返回上一级">
-            <ArrowLeft size={18} />
-          </button>
+          <div className="headerActions">
+            <button className="userSwitch" onClick={switchUser} title={`当前用户：${activeUser.name}`}>
+              <UserRound size={16} />
+              <span>{activeUser.name}</span>
+            </button>
+            <button className="iconButton" onClick={goBack} disabled={!breadcrumb.length} title="返回上一级">
+              <ArrowLeft size={18} />
+            </button>
+          </div>
         </header>
 
         <nav className="crumbs" aria-label="当前位置">
@@ -274,6 +335,10 @@ export default function TravelMapApp() {
           <button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")}>
             <BarChart3 size={16} />
             总览
+          </button>
+          <button className={activeTab === "correction" ? "active" : ""} onClick={() => setActiveTab("correction")}>
+            <Database size={16} />
+            校正
           </button>
         </div>
 
@@ -338,8 +403,10 @@ export default function TravelMapApp() {
               )}
             </section>
           </>
-        ) : (
+        ) : activeTab === "overview" ? (
           <OverviewPanel overview={overview} />
+        ) : (
+          <div className="empty">数据校正已打开</div>
         )}
       </aside>
 
@@ -359,6 +426,8 @@ export default function TravelMapApp() {
               if (place) drillInto(place);
             }}
             onJump={jumpToCountry}
+            onBack={goBack}
+            onWorld={goWorld}
           />
         )}
       </section>
@@ -414,9 +483,25 @@ export default function TravelMapApp() {
           <div className="empty inspectorEmpty">选择地图或列表中的地点</div>
         )}
       </aside>
+
+      {activeTab === "correction" && (
+        <CorrectionWorkbench
+          activeUserName={activeUser.name}
+          corrections={corrections}
+          onClose={() => setActiveTab("map")}
+          onSave={saveCorrection}
+        />
+      )}
     </div>
   );
 }
+
+type CorrectionEdit = {
+  visitedYear: string;
+  visitedMonth: string;
+  visitedDay: string;
+  note: string;
+};
 
 function OverviewPanel({ overview }: { overview: OverviewDto | null }) {
   if (!overview) {
@@ -480,6 +565,253 @@ function OverviewPanel({ overview }: { overview: OverviewDto | null }) {
   );
 }
 
+function CorrectionWorkbench({
+  activeUserName,
+  corrections,
+  onClose,
+  onSave
+}: {
+  activeUserName: string;
+  corrections: CorrectionsDto | null;
+  onClose: () => void;
+  onSave: (node: CorrectionNodeDto, edit: CorrectionEdit) => Promise<void>;
+}) {
+  const [edits, setEdits] = useState<Record<string, CorrectionEdit>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!corrections) return;
+    const nextEdits: Record<string, CorrectionEdit> = {};
+    visitCorrectionNodes(corrections.roots, (node) => {
+      if (!node.visit) return;
+      nextEdits[node.id] = {
+        visitedYear: node.visit.visitedYear ? String(node.visit.visitedYear) : "",
+        visitedMonth: node.visit.visitedMonth ? String(node.visit.visitedMonth) : "",
+        visitedDay: node.visit.visitedDay ? String(node.visit.visitedDay) : "",
+        note: node.visit.note ?? ""
+      };
+    });
+    setEdits(nextEdits);
+  }, [corrections]);
+
+  const updateEdit = (placeId: string, patch: Partial<CorrectionEdit>) => {
+    setEdits((current) => ({
+      ...current,
+      [placeId]: {
+        ...(current[placeId] ?? { visitedYear: "", visitedMonth: "", visitedDay: "", note: "" }),
+        ...patch
+      }
+    }));
+  };
+
+  const saveNode = async (node: CorrectionNodeDto) => {
+    const edit = edits[node.id];
+    if (!edit) return;
+    setSavingId(node.id);
+    await onSave(node, edit);
+    setSavingId(null);
+  };
+
+  const toggleNode = (node: CorrectionNodeDto) => {
+    if (!node.children.length) return;
+    setExpandedIds((current) =>
+      current.includes(node.id) ? current.filter((placeId) => placeId !== node.id) : [...current, node.id]
+    );
+  };
+
+  return (
+    <section className="correctionOverlay" aria-label="数据校正">
+      <header className="correctionHeader">
+        <div>
+          <p className="eyebrow">Data Correction</p>
+          <h2>数据校正</h2>
+          <p className="muted">
+            {activeUserName}
+            {corrections
+              ? ` · ${corrections.explicitVisits} 条手动记录 · ${corrections.derivedVisits} 条自动带入`
+              : " · 正在读取记录"}
+          </p>
+        </div>
+        <button className="iconButton" onClick={onClose} title="关闭校正界面">
+          <X size={18} />
+        </button>
+      </header>
+
+      {!corrections ? (
+        <div className="empty">正在读取已记录数据...</div>
+      ) : corrections.totalVisits ? (
+        <div className="correctionList">
+          {corrections.roots.map((node) => (
+            <CorrectionNode
+              key={node.id}
+              node={node}
+              depth={0}
+              edits={edits}
+              expandedIds={expandedIds}
+              savingId={savingId}
+              onEdit={updateEdit}
+              onToggle={toggleNode}
+              onSave={saveNode}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty">当前用户还没有记录</div>
+      )}
+    </section>
+  );
+}
+
+function CorrectionNode({
+  node,
+  depth,
+  edits,
+  expandedIds,
+  savingId,
+  onEdit,
+  onToggle,
+  onSave
+}: {
+  node: CorrectionNodeDto;
+  depth: number;
+  edits: Record<string, CorrectionEdit>;
+  expandedIds: string[];
+  savingId: string | null;
+  onEdit: (placeId: string, patch: Partial<CorrectionEdit>) => void;
+  onToggle: (node: CorrectionNodeDto) => void;
+  onSave: (node: CorrectionNodeDto) => void;
+}) {
+  const isExpanded = expandedIds.includes(node.id);
+
+  return (
+    <div className="correctionNode">
+      <CorrectionRow
+        node={node}
+        depth={depth}
+        edits={edits}
+        isExpanded={isExpanded}
+        savingId={savingId}
+        onEdit={onEdit}
+        onToggle={onToggle}
+        onSave={onSave}
+      />
+      {isExpanded && node.children.length > 0 && (
+        <div className="correctionChildren">
+          {node.children.map((child) => (
+            <CorrectionNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              edits={edits}
+              expandedIds={expandedIds}
+              savingId={savingId}
+              onEdit={onEdit}
+              onToggle={onToggle}
+              onSave={onSave}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CorrectionRow({
+  node,
+  depth,
+  edits,
+  isExpanded,
+  savingId,
+  onEdit,
+  onToggle,
+  onSave
+}: {
+  node: CorrectionNodeDto;
+  depth: number;
+  edits: Record<string, CorrectionEdit>;
+  isExpanded: boolean;
+  savingId: string | null;
+  onEdit: (placeId: string, patch: Partial<CorrectionEdit>) => void;
+  onToggle: (node: CorrectionNodeDto) => void;
+  onSave: (node: CorrectionNodeDto) => void;
+}) {
+  const edit = edits[node.id];
+  const rowClassName = [
+    "correctionRow",
+    node.visit ? "editable" : "groupOnly",
+    node.children.length > 0 ? "hasChildren" : "noChildren"
+  ].join(" ");
+
+  return (
+    <article className={rowClassName} style={{ "--depth": depth } as CSSProperties}>
+      <div className="correctionPlace">
+        <span>{levelLabels[node.level]}</span>
+        <strong>{node.nativeName ?? node.name}</strong>
+        {node.visit ? (
+          <small>
+            {node.visit.dateLabel}
+            {node.visit.isDerived ? " · 自动带入" : ""}
+          </small>
+        ) : (
+          <small>上级分组</small>
+        )}
+      </div>
+
+      {node.children.length > 0 && (
+        <button className="ghost correctionOpen" onClick={() => onToggle(node)}>
+          {isExpanded ? "收起" : "查看下级"} {node.children.length}
+        </button>
+      )}
+
+      {node.visit && edit && (
+        <div className="correctionFields">
+          <div className="dateParts compact">
+            <input
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="年"
+              value={edit.visitedYear}
+              onChange={(event) => onEdit(node.id, { visitedYear: onlyDigits(event.target.value, 4) })}
+            />
+            <input
+              inputMode="numeric"
+              maxLength={2}
+              placeholder="月"
+              value={edit.visitedMonth}
+              onChange={(event) => onEdit(node.id, { visitedMonth: onlyDigits(event.target.value, 2) })}
+            />
+            <input
+              inputMode="numeric"
+              maxLength={2}
+              placeholder="日"
+              value={edit.visitedDay}
+              onChange={(event) => onEdit(node.id, { visitedDay: onlyDigits(event.target.value, 2) })}
+            />
+          </div>
+          <input
+            className="correctionNote"
+            value={edit.note}
+            onChange={(event) => onEdit(node.id, { note: event.target.value })}
+            placeholder="备注"
+          />
+          <button className="primary correctionSave" onClick={() => onSave(node)} disabled={savingId === node.id}>
+            <Save size={15} />
+            {savingId === node.id ? "保存中" : "保存"}
+          </button>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function visitCorrectionNodes(nodes: CorrectionNodeDto[], visitor: (node: CorrectionNodeDto) => void) {
+  for (const node of nodes) {
+    visitor(node);
+    visitCorrectionNodes(node.children, visitor);
+  }
+}
+
 function getDatePayload(visitedYear: string, visitedMonth: string, visitedDay: string) {
   const year = toNumberOrNull(visitedYear);
   const month = toNumberOrNull(visitedMonth);
@@ -518,10 +850,9 @@ function formatPlaceDate(place: PlaceDto) {
 }
 
 function getNextLayerLabel(place: PlaceDto) {
-  if (place.level === "COUNTRY" && place.countryCode && cityStateCountryCodes.has(place.countryCode)) {
-    return nextLayerLabel.CITY;
-  }
-  return nextLayerLabel[place.level];
+  if (place.childLevel === "CITY") return "查看地点";
+  if (place.childLevel === "REGION") return "查看行政区";
+  return nextLayerLabel[place.level] ?? "查看详情";
 }
 
 function onlyDigits(value: string, maxLength: number) {

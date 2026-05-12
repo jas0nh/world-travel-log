@@ -2,6 +2,7 @@ import { DatePrecision } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { recomputeDerivedVisits } from "@/app/lib/visit-logic";
+import { normalizeUserId } from "@/app/lib/users";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as {
@@ -12,7 +13,9 @@ export async function POST(request: Request) {
     visitedMonth?: number | null;
     visitedDay?: number | null;
     note?: string | null;
+    userId?: string | null;
   };
+  const userId = normalizeUserId(body.userId);
 
   if (!body.placeId) {
     return NextResponse.json({ error: "placeId is required" }, { status: 400 });
@@ -30,8 +33,9 @@ export async function POST(request: Request) {
 
   const visit = await prisma.$transaction(async (tx) => {
     const savedVisit = await tx.visit.upsert({
-      where: { placeId: body.placeId! },
+      where: { userId_placeId: { userId, placeId: body.placeId! } },
       create: {
+        userId,
         placeId: body.placeId!,
         ...parsedDate.data,
         isDerived: false,
@@ -44,7 +48,7 @@ export async function POST(request: Request) {
       }
     });
 
-    await recomputeDerivedVisits(tx);
+    await recomputeDerivedVisits(tx, userId);
     return savedVisit;
   });
 

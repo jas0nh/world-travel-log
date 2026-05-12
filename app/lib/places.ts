@@ -2,7 +2,9 @@ import { DatePrecision, PlaceLevel, Prisma, type Visit } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { prisma } from "./prisma";
-import type { MapFeature, MapLayerDto, OverviewDto, PlaceDto, ProgressDto } from "./types";
+import { isCityStateCountry } from "./drill-policy";
+import { defaultUserId } from "./users";
+import type { CorrectionNodeDto, CorrectionsDto, MapFeature, MapLayerDto, OverviewDto, PlaceDto, ProgressDto } from "./types";
 
 const childLevelByParent: Record<PlaceLevel, PlaceLevel | null> = {
   COUNTRY: PlaceLevel.REGION,
@@ -15,9 +17,21 @@ const antimeridianIsoNumerics = new Set([
   "643" // Russia
 ]);
 
-const cityStateCountryCodes = new Set(["SG"]);
-const cityStateCountryIds = new Set(["country-sg"]);
-type ChildVisitSummary = { visit: unknown };
+type ChildVisitSummary = { visits: unknown[] };
+type PlaceWithVisit = {
+  id: string;
+  name: string;
+  nativeName: string | null;
+  level: PlaceLevel;
+  code: string | null;
+  isoNumeric: string | null;
+  countryCode: string | null;
+  lat: number;
+  lng: number;
+  parentId: string | null;
+  children: ChildVisitSummary[];
+  visits: Visit[];
+};
 
 export function nextLevel(level?: PlaceLevel | null) {
   if (!level) return PlaceLevel.COUNTRY;
@@ -27,13 +41,19 @@ export function nextLevel(level?: PlaceLevel | null) {
 export async function listPlaces(params: {
   level?: PlaceLevel;
   parentId?: string | null;
+  userId?: string;
 }) {
+  const userId = params.userId ?? defaultUserId;
   const where: Prisma.PlaceWhereInput = {};
+  const cityStateCountryCodes = await resolveCityStateCountryCodes();
+  const cityStateCountryIds = new Set(
+    [...cityStateCountryCodes].map((countryCode) => `country-${countryCode.toLowerCase()}`)
+  );
 
   if (params.parentId) {
     if (cityStateCountryIds.has(params.parentId)) {
       const countryCode = params.parentId.replace("country-", "").toUpperCase();
-      return listCityStateCities(countryCode);
+      return listCityStateCities(countryCode, userId);
     }
     where.parentId = params.parentId;
   } else {
@@ -44,27 +64,29 @@ export async function listPlaces(params: {
   const places = await prisma.place.findMany({
     where,
     include: {
-      visit: true,
+      visits: { where: { userId } },
       children: {
-        include: { visit: true }
+        include: { visits: { where: { userId } } }
       }
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
   });
 
   const cityStateChildren = !params.parentId
-    ? await loadCityStateChildren()
+    ? await loadCityStateChildren(cityStateCountryCodes, userId)
     : new Map<string, ChildVisitSummary[]>();
 
-  return places.map<PlaceDto>((place) => {
+  return (places as PlaceWithVisit[]).map<PlaceDto>((place) => {
     const visibleChildren = cityStateChildren.get(place.id);
     const children = visibleChildren ?? place.children;
+    const visit = place.visits[0];
 
     return {
       id: place.id,
       name: place.name,
       nativeName: place.nativeName,
       level: place.level,
+      childLevel: getVisibleChildLevel(place.level, place.countryCode, cityStateCountryCodes),
       code: place.code,
       isoNumeric: place.isoNumeric,
       countryCode: place.countryCode,
@@ -72,49 +94,49 @@ export async function listPlaces(params: {
       lng: place.lng,
       parentId: place.parentId,
       totalChildren: children.length,
-      visitedChildren: children.filter((child) => child.visit).length,
-      visited: Boolean(place.visit),
-      visitedAt: place.visit?.visitedAt?.toISOString() ?? null,
-      datePrecision: place.visit?.datePrecision ?? DatePrecision.UNKNOWN,
-      visitedYear: place.visit?.visitedYear ?? null,
-      visitedMonth: place.visit?.visitedMonth ?? null,
-      visitedDay: place.visit?.visitedDay ?? null,
-      isDerived: place.visit?.isDerived ?? false,
-      note: place.visit?.note ?? null
+      visitedChildren: children.filter((child) => child.visits.length > 0).length,
+      visited: Boolean(visit),
+      visitedAt: visit?.visitedAt?.toISOString() ?? null,
+      datePrecision: visit?.datePrecision ?? DatePrecision.UNKNOWN,
+      visitedYear: visit?.visitedYear ?? null,
+      visitedMonth: visit?.visitedMonth ?? null,
+      visitedDay: visit?.visitedDay ?? null,
+      isDerived: visit?.isDerived ?? false,
+      note: visit?.note ?? null
     };
   });
 }
 
-export async function getProgress(parentId?: string | null): Promise<ProgressDto> {
+export async function getProgress(parentId?: string | null, userId = defaultUserId): Promise<ProgressDto> {
   const places = await prisma.place.findMany({
     where: parentId ? { parentId } : { parentId: null, level: PlaceLevel.COUNTRY },
-    include: { visit: true }
+    include: { visits: { where: { userId } } }
   });
 
   return {
     parentId: parentId ?? null,
     level: places[0]?.level ?? PlaceLevel.COUNTRY,
     total: places.length,
-    visited: places.filter((place) => place.visit).length
+    visited: places.filter((place) => place.visits.length > 0).length
   };
 }
 
-export async function getOverview(): Promise<OverviewDto> {
+export async function getOverview(userId = defaultUserId): Promise<OverviewDto> {
   const [countries, chinaRegions, chinaCities, visits] = await Promise.all([
     prisma.place.findMany({
       where: { parentId: null, level: PlaceLevel.COUNTRY },
-      include: { visit: true }
+      include: { visits: { where: { userId } } }
     }),
     prisma.place.findMany({
       where: { parentId: "country-cn", level: PlaceLevel.REGION },
-      include: { visit: true }
+      include: { visits: { where: { userId } } }
     }),
     prisma.place.findMany({
       where: { countryCode: "CN", level: PlaceLevel.CITY },
-      include: { visit: true }
+      include: { visits: { where: { userId } } }
     }),
     prisma.visit.findMany({
-      where: { isDerived: false },
+      where: { userId, isDerived: false },
       include: {
         place: {
           include: { parent: true }
@@ -169,8 +191,94 @@ export async function getOverview(): Promise<OverviewDto> {
   };
 }
 
+export async function getCorrections(userId = defaultUserId): Promise<CorrectionsDto> {
+  const [places, visits] = await Promise.all([
+    prisma.place.findMany({
+      select: {
+        id: true,
+        name: true,
+        nativeName: true,
+        level: true,
+        parentId: true,
+        sortOrder: true
+      }
+    }),
+    prisma.visit.findMany({
+      where: { userId },
+      include: { place: true },
+      orderBy: [{ visitedYear: "desc" }, { visitedMonth: "desc" }, { visitedDay: "desc" }, { updatedAt: "desc" }]
+    })
+  ]);
+
+  const placeById = new Map(places.map((place) => [place.id, place]));
+  const nodeById = new Map<string, CorrectionNodeDto>();
+  const roots: CorrectionNodeDto[] = [];
+
+  const ensureNode = (placeId: string): CorrectionNodeDto | null => {
+    const place = placeById.get(placeId);
+    if (!place) return null;
+
+    const existingNode = nodeById.get(placeId);
+    if (existingNode) return existingNode;
+
+    const node: CorrectionNodeDto = {
+      id: place.id,
+      name: place.name,
+      nativeName: place.nativeName,
+      level: place.level,
+      visit: null,
+      children: []
+    };
+    nodeById.set(place.id, node);
+
+    const parentNode = place.parentId ? ensureNode(place.parentId) : null;
+    if (parentNode) {
+      if (!parentNode.children.some((child) => child.id === node.id)) parentNode.children.push(node);
+    } else if (!roots.some((root) => root.id === node.id)) {
+      roots.push(node);
+    }
+
+    return node;
+  };
+
+  for (const visit of visits) {
+    const node = ensureNode(visit.placeId);
+    if (!node) continue;
+    node.visit = {
+      id: visit.id,
+      isDerived: visit.isDerived,
+      dateLabel: formatVisitDate(visit),
+      datePrecision: visit.datePrecision,
+      visitedAt: visit.visitedAt?.toISOString() ?? null,
+      visitedYear: visit.visitedYear,
+      visitedMonth: visit.visitedMonth,
+      visitedDay: visit.visitedDay,
+      note: visit.note
+    };
+  }
+
+  const placeOrder = new Map(places.map((place) => [place.id, { sortOrder: place.sortOrder, name: place.name }]));
+  const sortNodes = (nodes: CorrectionNodeDto[]) => {
+    nodes.sort((left, right) => {
+      const leftOrder = placeOrder.get(left.id);
+      const rightOrder = placeOrder.get(right.id);
+      return (leftOrder?.sortOrder ?? 0) - (rightOrder?.sortOrder ?? 0) || left.name.localeCompare(right.name);
+    });
+    for (const node of nodes) sortNodes(node.children);
+  };
+
+  sortNodes(roots);
+
+  return {
+    roots,
+    totalVisits: visits.length,
+    explicitVisits: visits.filter((visit) => !visit.isDerived).length,
+    derivedVisits: visits.filter((visit) => visit.isDerived).length
+  };
+}
+
 function progressFromPlaces(
-  places: Array<{ visit: unknown }>,
+  places: Array<{ visits: unknown[] }>,
   parentId: string | null,
   level: PlaceLevel
 ): ProgressDto {
@@ -178,30 +286,33 @@ function progressFromPlaces(
     parentId,
     level,
     total: places.length,
-    visited: places.filter((place) => place.visit).length
+    visited: places.filter((place) => place.visits.length > 0).length
   };
 }
 
-async function listCityStateCities(countryCode: string) {
+async function listCityStateCities(countryCode: string, userId: string) {
   const places = await prisma.place.findMany({
     where: {
       countryCode,
       level: PlaceLevel.CITY
     },
     include: {
-      visit: true,
+      visits: { where: { userId } },
       children: {
-        include: { visit: true }
+        include: { visits: { where: { userId } } }
       }
     },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
   });
 
-  return places.map<PlaceDto>((place) => ({
+  return (places as PlaceWithVisit[]).map<PlaceDto>((place) => {
+    const visit = place.visits[0];
+    return {
     id: place.id,
     name: place.name,
     nativeName: place.nativeName,
     level: place.level,
+    childLevel: null,
     code: place.code,
     isoNumeric: place.isoNumeric,
     countryCode: place.countryCode,
@@ -209,19 +320,20 @@ async function listCityStateCities(countryCode: string) {
     lng: place.lng,
     parentId: place.parentId,
     totalChildren: place.children.length,
-    visitedChildren: place.children.filter((child) => child.visit).length,
-    visited: Boolean(place.visit),
-    visitedAt: place.visit?.visitedAt?.toISOString() ?? null,
-    datePrecision: place.visit?.datePrecision ?? DatePrecision.UNKNOWN,
-    visitedYear: place.visit?.visitedYear ?? null,
-    visitedMonth: place.visit?.visitedMonth ?? null,
-    visitedDay: place.visit?.visitedDay ?? null,
-    isDerived: place.visit?.isDerived ?? false,
-    note: place.visit?.note ?? null
-  }));
+    visitedChildren: place.children.filter((child) => child.visits.length > 0).length,
+    visited: Boolean(visit),
+    visitedAt: visit?.visitedAt?.toISOString() ?? null,
+    datePrecision: visit?.datePrecision ?? DatePrecision.UNKNOWN,
+    visitedYear: visit?.visitedYear ?? null,
+    visitedMonth: visit?.visitedMonth ?? null,
+    visitedDay: visit?.visitedDay ?? null,
+    isDerived: visit?.isDerived ?? false,
+    note: visit?.note ?? null
+    };
+  });
 }
 
-async function loadCityStateChildren() {
+async function loadCityStateChildren(cityStateCountryCodes: Set<string>, userId: string) {
   const countries = await prisma.place.findMany({
     where: {
       parentId: null,
@@ -240,7 +352,7 @@ async function loadCityStateChildren() {
       },
       level: PlaceLevel.CITY
     },
-    include: { visit: true }
+    include: { visits: { where: { userId } } }
   });
 
   const childrenByCountryId = new Map<string, ChildVisitSummary[]>();
@@ -252,6 +364,60 @@ async function loadCityStateChildren() {
   }
 
   return childrenByCountryId;
+}
+
+async function resolveCityStateCountryCodes() {
+  const [countries, regionGroups, cityGroups] = await Promise.all([
+    prisma.place.findMany({
+      where: { parentId: null, level: PlaceLevel.COUNTRY },
+      select: { code: true }
+    }),
+    prisma.place.groupBy({
+      by: ["countryCode"],
+      where: { level: PlaceLevel.REGION },
+      _count: { _all: true }
+    }),
+    prisma.place.groupBy({
+      by: ["countryCode"],
+      where: { level: PlaceLevel.CITY },
+      _count: { _all: true }
+    })
+  ]);
+
+  const regionCountByCode = new Map(
+    regionGroups
+      .filter((group) => group.countryCode)
+      .map((group) => [group.countryCode as string, group._count._all])
+  );
+  const cityCountByCode = new Map(
+    cityGroups
+      .filter((group) => group.countryCode)
+      .map((group) => [group.countryCode as string, group._count._all])
+  );
+
+  return new Set(
+    countries
+      .map((country) => country.code)
+      .filter((countryCode): countryCode is string => Boolean(countryCode))
+      .filter((countryCode) =>
+        isCityStateCountry({
+          countryCode,
+          regionCount: regionCountByCode.get(countryCode) ?? 0,
+          cityCount: cityCountByCode.get(countryCode) ?? 0
+        })
+      )
+  );
+}
+
+function getVisibleChildLevel(
+  level: PlaceLevel,
+  countryCode: string | null,
+  cityStateCountryCodes: Set<string>
+): PlaceLevel | null {
+  if (level === PlaceLevel.CITY) return null;
+  if (level === PlaceLevel.REGION) return PlaceLevel.CITY;
+  if (countryCode && cityStateCountryCodes.has(countryCode)) return PlaceLevel.CITY;
+  return PlaceLevel.REGION;
 }
 
 export function formatVisitDate(
@@ -296,8 +462,8 @@ export async function getBreadcrumb(placeId?: string | null) {
   }));
 }
 
-export async function getMapLayer(parentId?: string | null): Promise<MapLayerDto> {
-  const places = await listPlaces({ parentId });
+export async function getMapLayer(parentId?: string | null, userId = defaultUserId): Promise<MapLayerDto> {
+  const places = await listPlaces({ parentId, userId });
   const geometries = await getBoundaryGeometries(parentId);
 
   return {
@@ -312,6 +478,7 @@ export async function getMapLayer(parentId?: string | null): Promise<MapLayerDto
         name: place.name,
         nativeName: place.nativeName,
         level: place.level,
+        parentId: place.parentId,
         visited: place.visited,
         totalChildren: place.totalChildren,
         visitedChildren: place.visitedChildren

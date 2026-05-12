@@ -33,7 +33,7 @@ model Place {
   parentId    String?
   parent      Place?      @relation("PlaceChildren", fields: [parentId], references: [id], onDelete: Cascade)
   children    Place[]     @relation("PlaceChildren")
-  visit       Visit?
+  visits      Visit[]
   sortOrder   Int         @default(0)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -44,9 +44,20 @@ model Place {
   @@index([isoNumeric])
 }
 
+model User {
+  id        String   @id
+  name      String
+  visits    Visit[]
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Visit {
   id            String        @id @default(cuid())
-  placeId       String        @unique
+  userId        String        @default("user-jason")
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  placeId       String
   place         Place         @relation(fields: [placeId], references: [id], onDelete: Cascade)
   visitedAt     DateTime?
   datePrecision DatePrecision @default(UNKNOWN)
@@ -57,6 +68,10 @@ model Visit {
   note          String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+
+  @@unique([userId, placeId])
+  @@index([placeId])
+  @@index([userId])
 }
 
 model MapLayerCache {

@@ -5,6 +5,7 @@ export type PlaceDto = {
   name: string;
   nativeName: string | null;
   level: PlaceLevel;
+  childLevel: PlaceLevel | null;
   code: string | null;
   isoNumeric: string | null;
   countryCode: string | null;
@@ -62,6 +63,34 @@ export type OverviewDto = {
   }>;
 };
 
+export type CorrectionVisitDto = {
+  id: string;
+  isDerived: boolean;
+  dateLabel: string;
+  datePrecision: DatePrecision;
+  visitedAt: string | null;
+  visitedYear: number | null;
+  visitedMonth: number | null;
+  visitedDay: number | null;
+  note: string | null;
+};
+
+export type CorrectionNodeDto = {
+  id: string;
+  name: string;
+  nativeName: string | null;
+  level: PlaceLevel;
+  visit: CorrectionVisitDto | null;
+  children: CorrectionNodeDto[];
+};
+
+export type CorrectionsDto = {
+  roots: CorrectionNodeDto[];
+  totalVisits: number;
+  explicitVisits: number;
+  derivedVisits: number;
+};
+
 export type MapFeature = {
   type: "Feature";
   id: string;
@@ -70,6 +99,7 @@ export type MapFeature = {
     name: string;
     nativeName: string | null;
     level: PlaceLevel;
+    parentId: string | null;
     visited: boolean;
     totalChildren: number;
     visitedChildren: number;
