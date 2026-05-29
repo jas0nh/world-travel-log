@@ -1,9 +1,10 @@
-import { DatePrecision, type Prisma } from "@prisma/client";
+import { DatePrecision, VisitStatus, type Prisma } from "@prisma/client";
 
 type PlaceNode = {
   id: string;
   children: Array<{ id: string }>;
   visits: Array<{
+    status: VisitStatus;
     visitedAt: Date | null;
     datePrecision: DatePrecision;
     visitedYear: number | null;
@@ -15,6 +16,7 @@ type PlaceNode = {
 };
 
 type VisitPayload = {
+  status: VisitStatus;
   visitedAt: Date | null;
   datePrecision: DatePrecision;
   visitedYear: number | null;
@@ -43,7 +45,7 @@ export async function recomputeDerivedVisits(tx: Prisma.TransactionClient, userI
   const currentDerivedIds = new Set<string>();
 
   for (const place of places as PlaceNode[]) {
-    const visit = place.visits[0];
+    const visit = place.visits.find((entry) => entry.status === VisitStatus.VISITED);
     if (!visit) continue;
     if (visit.isDerived) currentDerivedIds.add(place.id);
     else explicitVisits.set(place.id, toEffectiveVisit(visit));
@@ -142,10 +144,12 @@ export async function recomputeDerivedVisits(tx: Prisma.TransactionClient, userI
         userId,
         placeId,
         ...visit,
+        status: VisitStatus.VISITED,
         isDerived: true
       },
       update: {
         ...visit,
+        status: VisitStatus.VISITED,
         isDerived: true
       }
     });
@@ -161,6 +165,7 @@ function toEffectiveVisit(visit: {
   note: string | null;
 }) {
   return {
+    status: VisitStatus.VISITED,
     visitedAt: visit.visitedAt,
     datePrecision: visit.datePrecision,
     visitedYear: visit.visitedYear,
@@ -172,6 +177,7 @@ function toEffectiveVisit(visit: {
 
 function asDerivedVisit(visit: EffectiveVisit): EffectiveVisit {
   return {
+    status: VisitStatus.VISITED,
     visitedAt: visit.visitedAt,
     datePrecision: visit.datePrecision,
     visitedYear: visit.visitedYear,

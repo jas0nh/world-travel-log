@@ -1,4 +1,7 @@
-import type { DatePrecision, PlaceLevel } from "@prisma/client";
+import type { DatePrecision, PlaceLevel, VisitStatus as PrismaVisitStatus } from "@prisma/client";
+
+export type PlaceVisitStatus = "NONE" | PrismaVisitStatus;
+export type PlaceDisplayStatus = PlaceVisitStatus | "VISITED_WITH_PLANNED_CHILDREN";
 
 export type PlaceDto = {
   id: string;
@@ -14,6 +17,10 @@ export type PlaceDto = {
   parentId: string | null;
   totalChildren: number;
   visitedChildren: number;
+  plannedChildren: number;
+  hasPlannedChildren: boolean;
+  visitStatus: PlaceVisitStatus;
+  displayStatus: PlaceDisplayStatus;
   visited: boolean;
   visitedAt: string | null;
   datePrecision: DatePrecision;
@@ -29,6 +36,7 @@ export type ProgressDto = {
   level: PlaceLevel;
   total: number;
   visited: number;
+  planned: number;
 };
 
 export type OverviewDto = {
@@ -66,6 +74,7 @@ export type OverviewDto = {
 export type CorrectionVisitDto = {
   id: string;
   isDerived: boolean;
+  status: PrismaVisitStatus;
   dateLabel: string;
   datePrecision: DatePrecision;
   visitedAt: string | null;
@@ -100,9 +109,13 @@ export type MapFeature = {
     nativeName: string | null;
     level: PlaceLevel;
     parentId: string | null;
+    visitStatus: PlaceVisitStatus;
+    displayStatus: PlaceDisplayStatus;
     visited: boolean;
     totalChildren: number;
     visitedChildren: number;
+    plannedChildren: number;
+    hasPlannedChildren: boolean;
   };
   geometry:
     | {

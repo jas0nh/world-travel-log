@@ -6,6 +6,8 @@
   --panel: rgba(255, 252, 245, 0.94);
   --accent: #0f766e;
   --accent-strong: #0b5d57;
+  --plan: #f59e0b;
+  --plan-strong: #b45309;
   --danger: #a33d32;
 }
 
@@ -219,7 +221,7 @@ h2 {
   border-radius: 8px;
   display: grid;
   gap: 4px;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   margin: 14px 0;
   padding: 4px;
 }
@@ -311,18 +313,43 @@ h2 {
 
 .pin {
   align-items: center;
+  background: #fffaf1;
   border: 1px solid var(--line);
   border-radius: 999px;
   display: inline-flex;
   height: 28px;
   justify-content: center;
+  position: relative;
   width: 28px;
 }
 
-.pin.visited {
+.pin-visited {
   background: var(--accent);
   border-color: var(--accent);
   color: white;
+}
+
+.pin-planned {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(180, 83, 9, 0.45);
+  color: var(--plan-strong);
+}
+
+.pin-visited_with_planned_children {
+  background: var(--accent-strong);
+  border-color: var(--plan-strong);
+  color: white;
+}
+
+.pinBadge {
+  background: var(--plan);
+  border: 2px solid #fffaf1;
+  border-radius: 999px;
+  bottom: -1px;
+  height: 10px;
+  position: absolute;
+  right: -1px;
+  width: 10px;
 }
 
 .mapStage {
@@ -475,6 +502,13 @@ h2 {
   color: var(--muted);
 }
 
+.statBlock small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
 .statBlock strong {
   display: block;
   font-size: 26px;
@@ -524,6 +558,11 @@ h2 {
   display: grid;
   gap: 10px;
   grid-template-columns: 1fr 1fr;
+  margin-top: 18px;
+}
+
+.inspectorSegmented {
+  grid-template-columns: repeat(2, 1fr);
   margin-top: 18px;
 }
 

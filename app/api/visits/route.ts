@@ -1,4 +1,4 @@
-import { DatePrecision } from "@prisma/client";
+import { DatePrecision, VisitStatus } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { recomputeDerivedVisits } from "@/app/lib/visit-logic";
@@ -7,6 +7,7 @@ import { normalizeUserId } from "@/app/lib/users";
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     placeId?: string;
+    status?: VisitStatus;
     visitedAt?: string | null;
     datePrecision?: DatePrecision;
     visitedYear?: number | null;
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Place not found" }, { status: 404 });
   }
 
-  const parsedDate = normalizeVisitDate(body);
+  const parsedDate = normalizeVisitPayload(body);
   if (!parsedDate.ok) {
     return NextResponse.json({ error: parsedDate.error }, { status: 400 });
   }
@@ -55,7 +56,8 @@ export async function POST(request: Request) {
   return NextResponse.json({ visit });
 }
 
-function normalizeVisitDate(body: {
+function normalizeVisitPayload(body: {
+  status?: VisitStatus;
   visitedAt?: string | null;
   datePrecision?: DatePrecision;
   visitedYear?: number | null;
@@ -65,6 +67,7 @@ function normalizeVisitDate(body: {
   | {
       ok: true;
       data: {
+        status: VisitStatus;
         visitedAt: Date | null;
         datePrecision: DatePrecision;
         visitedYear: number | null;
@@ -73,6 +76,25 @@ function normalizeVisitDate(body: {
       };
     }
   | { ok: false; error: string } {
+  const status = body.status ?? VisitStatus.VISITED;
+  if (!Object.values(VisitStatus).includes(status)) {
+    return { ok: false, error: "Invalid status" };
+  }
+
+  if (status === VisitStatus.PLANNED) {
+    return {
+      ok: true,
+      data: {
+        status,
+        visitedAt: null,
+        datePrecision: DatePrecision.UNKNOWN,
+        visitedYear: null,
+        visitedMonth: null,
+        visitedDay: null
+      }
+    };
+  }
+
   const legacyDate = body.visitedAt?.trim();
   const precision = body.datePrecision ?? (legacyDate ? DatePrecision.DAY : DatePrecision.UNKNOWN);
 
@@ -83,7 +105,14 @@ function normalizeVisitDate(body: {
   if (precision === DatePrecision.UNKNOWN) {
     return {
       ok: true,
-      data: { visitedAt: null, datePrecision: precision, visitedYear: null, visitedMonth: null, visitedDay: null }
+      data: {
+        status,
+        visitedAt: null,
+        datePrecision: precision,
+        visitedYear: null,
+        visitedMonth: null,
+        visitedDay: null
+      }
     };
   }
 
@@ -106,7 +135,7 @@ function normalizeVisitDate(body: {
   if (precision === DatePrecision.YEAR) {
     return {
       ok: true,
-      data: { visitedAt: null, datePrecision: precision, visitedYear, visitedMonth: null, visitedDay: null }
+      data: { status, visitedAt: null, datePrecision: precision, visitedYear, visitedMonth: null, visitedDay: null }
     };
   }
 
@@ -117,7 +146,7 @@ function normalizeVisitDate(body: {
   if (precision === DatePrecision.MONTH) {
     return {
       ok: true,
-      data: { visitedAt: null, datePrecision: precision, visitedYear, visitedMonth, visitedDay: null }
+      data: { status, visitedAt: null, datePrecision: precision, visitedYear, visitedMonth, visitedDay: null }
     };
   }
 
@@ -136,7 +165,7 @@ function normalizeVisitDate(body: {
 
   return {
     ok: true,
-    data: { visitedAt, datePrecision: precision, visitedYear, visitedMonth, visitedDay }
+    data: { status, visitedAt, datePrecision: precision, visitedYear, visitedMonth, visitedDay }
   };
 }
 

@@ -1,10 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { ArrowLeft, BarChart3, Check, Database, Map, MapPin, Save, Search, UserRound, X } from "lucide-react";
+import { ArrowLeft, BarChart3, Check, Database, Flag, Map, MapPin, Save, Search, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { DatePrecision, type PlaceLevel } from "@prisma/client";
-import type { CorrectionNodeDto, CorrectionsDto, MapLayerDto, OverviewDto, PlaceDto } from "@/app/lib/types";
+import { DatePrecision, VisitStatus, type PlaceLevel } from "@prisma/client";
+import type { CorrectionNodeDto, CorrectionsDto, MapLayerDto, OverviewDto, PlaceDisplayStatus, PlaceDto } from "@/app/lib/types";
 import { appUsers, defaultUserId } from "@/app/lib/users";
 
 const TravelMap = dynamic(() => import("./TravelMap"), {
@@ -46,8 +46,9 @@ export default function TravelMapApp() {
   const [breadcrumb, setBreadcrumb] = useState<Breadcrumb[]>([]);
   const [selected, setSelected] = useState<PlaceDto | null>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "visited" | "open">("all");
+  const [filter, setFilter] = useState<"all" | "visited" | "planned" | "open">("all");
   const [note, setNote] = useState("");
+  const [editorStatus, setEditorStatus] = useState<VisitStatus>(VisitStatus.VISITED);
   const [visitedYear, setVisitedYear] = useState("");
   const [visitedMonth, setVisitedMonth] = useState("");
   const [visitedDay, setVisitedDay] = useState("");
@@ -62,8 +63,17 @@ export default function TravelMapApp() {
     [activeUserId]
   );
 
+  const applySelection = useCallback((place: PlaceDto | null) => {
+    setSelected(place);
+    setNote(place?.note ?? "");
+    setEditorStatus(place?.visitStatus === VisitStatus.PLANNED ? VisitStatus.PLANNED : VisitStatus.VISITED);
+    setVisitedYear(place?.visitedYear ? String(place.visitedYear) : "");
+    setVisitedMonth(place?.visitedMonth ? String(place.visitedMonth) : "");
+    setVisitedDay(place?.visitedDay ? String(place.visitedDay) : "");
+  }, []);
+
   const load = useCallback(
-    async (nextParentId: string | null) => {
+    async (nextParentId: string | null, selectedId?: string | null) => {
       setIsLoading(true);
       const suffix = nextParentId
         ? `?parentId=${encodeURIComponent(nextParentId)}&userId=${encodeURIComponent(activeUserId)}`
@@ -77,31 +87,31 @@ export default function TravelMapApp() {
       setPlaces(placeData.places);
       setLayer(layerData);
       setBreadcrumb(placeData.breadcrumb);
-      setSelected(null);
+      applySelection(selectedId ? placeData.places.find((place) => place.id === selectedId) ?? null : null);
       setIsLoading(false);
     },
-    [activeUserId, userQuery]
+    [activeUserId, applySelection, userQuery]
   );
 
   useEffect(() => {
     void load(parentId);
   }, [load, parentId]);
 
-  useEffect(() => {
-    const loadRootContext = async () => {
-      const suffix = userQuery();
-      const [placeResponse, layerResponse] = await Promise.all([
-        fetch(`/api/places${suffix}`),
-        fetch(`/api/map-layer${suffix}`)
-      ]);
-      const placeData = (await placeResponse.json()) as PlaceResponse;
-      const layerData = (await layerResponse.json()) as MapLayerDto;
-      setRootPlaces(placeData.places);
-      setRootLayer(layerData);
-    };
-
-    void loadRootContext();
+  const loadRootContext = useCallback(async () => {
+    const suffix = userQuery();
+    const [placeResponse, layerResponse] = await Promise.all([
+      fetch(`/api/places${suffix}`),
+      fetch(`/api/map-layer${suffix}`)
+    ]);
+    const placeData = (await placeResponse.json()) as PlaceResponse;
+    const layerData = (await layerResponse.json()) as MapLayerDto;
+    setRootPlaces(placeData.places);
+    setRootLayer(layerData);
   }, [userQuery]);
+
+  useEffect(() => {
+    void loadRootContext();
+  }, [loadRootContext]);
 
   const loadOverview = useCallback(async () => {
     const response = await fetch(`/api/overview${userQuery()}`);
@@ -122,6 +132,7 @@ export default function TravelMapApp() {
 
   const currentLevel = places[0]?.level ?? "COUNTRY";
   const visitedCount = places.filter((place) => place.visited).length;
+  const plannedCount = places.filter((place) => place.visitStatus === VisitStatus.PLANNED).length;
   const completion = places.length ? Math.round((visitedCount / places.length) * 100) : 0;
 
   const filteredPlaces = useMemo(() => {
@@ -133,8 +144,9 @@ export default function TravelMapApp() {
         place.nativeName?.toLocaleLowerCase().includes(normalizedQuery);
       const matchesFilter =
         filter === "all" ||
-        (filter === "visited" && place.visited) ||
-        (filter === "open" && !place.visited);
+        (filter === "visited" && place.visitStatus === VisitStatus.VISITED) ||
+        (filter === "planned" && place.visitStatus === VisitStatus.PLANNED) ||
+        (filter === "open" && place.visitStatus === "NONE");
       return matchesQuery && matchesFilter;
     });
   }, [filter, places, query]);
@@ -161,14 +173,11 @@ export default function TravelMapApp() {
     setSelected(null);
     setOverview(null);
     setCorrections(null);
+    setEditorStatus(VisitStatus.VISITED);
   };
 
   const openPlace = (place: PlaceDto) => {
-    setSelected(place);
-    setNote(place.note ?? "");
-    setVisitedYear(place.visitedYear ? String(place.visitedYear) : "");
-    setVisitedMonth(place.visitedMonth ? String(place.visitedMonth) : "");
-    setVisitedDay(place.visitedDay ? String(place.visitedDay) : "");
+    applySelection(place);
   };
 
   const drillInto = (place: PlaceDto) => {
@@ -199,28 +208,28 @@ export default function TravelMapApp() {
     }
 
     setParentId(null);
-    setSelected(country);
-    setNote(country.note ?? "");
-    setVisitedYear(country.visitedYear ? String(country.visitedYear) : "");
-    setVisitedMonth(country.visitedMonth ? String(country.visitedMonth) : "");
-    setVisitedDay(country.visitedDay ? String(country.visitedDay) : "");
+    applySelection(country);
   };
 
-  const updateVisitState = (placeId: string, visited: boolean) => {
+  const updateVisitState = (placeId: string, status: VisitStatus | "NONE") => {
     const nextDate = getDatePayload(visitedYear, visitedMonth, visitedDay);
     const noteValue = note || null;
+    const nextVisitStatus: PlaceDto["visitStatus"] = status === "NONE" ? "NONE" : status;
 
     const updatePlace = (place: PlaceDto) =>
       place.id === placeId
         ? {
             ...place,
-            visited,
-            visitedAt: visited && nextDate.datePrecision === DatePrecision.DAY ? nextDate.visitedAt : null,
-            datePrecision: visited ? nextDate.datePrecision : DatePrecision.UNKNOWN,
-            visitedYear: visited ? nextDate.visitedYear : null,
-            visitedMonth: visited ? nextDate.visitedMonth : null,
-            visitedDay: visited ? nextDate.visitedDay : null,
-            note: visited ? noteValue : null
+            visitStatus: nextVisitStatus,
+            displayStatus: getDisplayStatus(nextVisitStatus, place.hasPlannedChildren),
+            visited: nextVisitStatus === VisitStatus.VISITED,
+            visitedAt: status === VisitStatus.VISITED && nextDate.datePrecision === DatePrecision.DAY ? nextDate.visitedAt : null,
+            datePrecision: status === VisitStatus.VISITED ? nextDate.datePrecision : DatePrecision.UNKNOWN,
+            visitedYear: status === VisitStatus.VISITED ? nextDate.visitedYear : null,
+            visitedMonth: status === VisitStatus.VISITED ? nextDate.visitedMonth : null,
+            visitedDay: status === VisitStatus.VISITED ? nextDate.visitedDay : null,
+            isDerived: false,
+            note: status === "NONE" ? null : noteValue
           }
         : place;
 
@@ -235,8 +244,10 @@ export default function TravelMapApp() {
                 ? {
                     ...feature,
                     properties: {
-                      ...feature.properties,
-                      visited
+                    ...feature.properties,
+                      visitStatus: nextVisitStatus,
+                      displayStatus: getDisplayStatus(nextVisitStatus, feature.properties.hasPlannedChildren),
+                      visited: nextVisitStatus === VisitStatus.VISITED
                     }
                   }
                 : feature
@@ -255,12 +266,14 @@ export default function TravelMapApp() {
       body: JSON.stringify({
         userId: activeUserId,
         placeId: selected.id,
-        ...datePayload,
+        status: editorStatus,
+        ...(editorStatus === VisitStatus.VISITED ? datePayload : {}),
         note: note || null
       })
     });
     if (response.ok) {
-      updateVisitState(selected.id, true);
+      updateVisitState(selected.id, editorStatus);
+      await loadRootContext();
       if (activeTab === "overview") void loadOverview();
     }
   };
@@ -269,7 +282,8 @@ export default function TravelMapApp() {
     if (!selected) return;
     const response = await fetch(`/api/visits/${selected.id}${userQuery()}`, { method: "DELETE" });
     if (response.ok) {
-      updateVisitState(selected.id, false);
+      updateVisitState(selected.id, "NONE");
+      await loadRootContext();
       if (activeTab === "overview") void loadOverview();
     }
   };
@@ -282,6 +296,7 @@ export default function TravelMapApp() {
       body: JSON.stringify({
         userId: activeUserId,
         placeId: node.id,
+        status: VisitStatus.VISITED,
         ...datePayload,
         note: edit.note || null
       })
@@ -354,7 +369,7 @@ export default function TravelMapApp() {
               <div className="meter" aria-label={`完成度 ${completion}%`}>
                 <span style={{ width: `${completion}%` }} />
               </div>
-              <p>{completion}% 已点亮</p>
+              <p>{completion}% 已点亮{plannedCount ? ` · ${plannedCount} 个计划中` : ""}</p>
             </section>
 
             <div className="searchRow">
@@ -368,8 +383,9 @@ export default function TravelMapApp() {
 
             <div className="segmented">
               <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>全部</button>
-              <button className={filter === "visited" ? "active" : ""} onClick={() => setFilter("visited")}>已去过</button>
-              <button className={filter === "open" ? "active" : ""} onClick={() => setFilter("open")}>未去过</button>
+              <button className={filter === "visited" ? "active" : ""} onClick={() => setFilter("visited")}>已到访</button>
+              <button className={filter === "planned" ? "active" : ""} onClick={() => setFilter("planned")}>计划中</button>
+              <button className={filter === "open" ? "active" : ""} onClick={() => setFilter("open")}>未标记</button>
             </div>
 
             <section className="placeList" aria-label="地点列表">
@@ -383,17 +399,17 @@ export default function TravelMapApp() {
                     onClick={() => openPlace(place)}
                     onDoubleClick={() => drillInto(place)}
                   >
-                    <span className={place.visited ? "pin visited" : "pin"}>
-                      {place.visited ? <Check size={13} /> : <MapPin size={13} />}
-                    </span>
+                    {renderPlacePin(place)}
                     <span>
                       <strong>{place.nativeName ?? place.name}</strong>
                       <small>
                         {place.totalChildren > 0
-                          ? `${place.visitedChildren}/${place.totalChildren} ${getNextLayerLabel(place)}`
-                          : place.visited
+                          ? `${place.visitedChildren}/${place.totalChildren} 已到访${place.plannedChildren ? ` · ${place.plannedChildren} 个计划中` : ""}`
+                          : place.visitStatus === VisitStatus.VISITED
                             ? formatPlaceDate(place)
-                            : "未去过"}
+                            : place.visitStatus === VisitStatus.PLANNED
+                              ? "计划中"
+                              : "未标记"}
                       </small>
                     </span>
                   </button>
@@ -441,14 +457,33 @@ export default function TravelMapApp() {
             <p className="eyebrow">{levelLabels[selected.level]}</p>
             <h2>{selected.nativeName ?? selected.name}</h2>
             <p className="muted">
-              {selected.totalChildren > 0
-                ? `下一级进度 ${selected.visitedChildren}/${selected.totalChildren}`
-                : selected.visited
-                  ? "已记录到旅记地图"
-                  : "还没有标记去过"}
+              {selected.displayStatus === "VISITED_WITH_PLANNED_CHILDREN"
+                ? `已到访，且下级还有 ${selected.plannedChildren} 个计划中的地点`
+                : selected.totalChildren > 0
+                  ? `下一级进度 ${selected.visitedChildren}/${selected.totalChildren}${selected.plannedChildren ? ` · ${selected.plannedChildren} 个计划中` : ""}`
+                  : selected.visitStatus === VisitStatus.VISITED
+                    ? "已记录到旅记地图"
+                    : selected.visitStatus === VisitStatus.PLANNED
+                      ? "未来目的地 / 待出发"
+                      : "还没有标记"}
             </p>
+            <div className="segmented inspectorSegmented">
+              <button
+                className={editorStatus === VisitStatus.PLANNED ? "active" : ""}
+                onClick={() => setEditorStatus(VisitStatus.PLANNED)}
+              >
+                计划中
+              </button>
+              <button
+                className={editorStatus === VisitStatus.VISITED ? "active" : ""}
+                onClick={() => setEditorStatus(VisitStatus.VISITED)}
+              >
+                已到访
+              </button>
+            </div>
+            {editorStatus === VisitStatus.VISITED && (
             <label>
-              去过日期
+              到访日期
               <div className="dateControls">
                 <div className="dateParts">
                   <input inputMode="numeric" maxLength={4} placeholder="年" value={visitedYear} onChange={(event) => setVisitedYear(onlyDigits(event.target.value, 4))} />
@@ -457,20 +492,21 @@ export default function TravelMapApp() {
                 </div>
               </div>
             </label>
+            )}
             <label>
               备注
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
-                placeholder="比如：第一次独自旅行、转机、短暂停留..."
+                placeholder={editorStatus === VisitStatus.PLANNED ? "比如：秋天想去、想顺路安排、先留个坑..." : "比如：第一次独自旅行、转机、短暂停留..."}
               />
             </label>
             <div className="actions">
               <button className="primary" onClick={saveVisit}>
-                标记去过
+                {editorStatus === VisitStatus.PLANNED ? "标记计划" : "标记去过"}
               </button>
-              <button className="ghost" onClick={removeVisit} disabled={!selected.visited || selected.isDerived}>
-                取消标记
+              <button className="ghost" onClick={removeVisit} disabled={selected.visitStatus === "NONE" || selected.isDerived}>
+                清除标记
               </button>
             </div>
             {selected.totalChildren > 0 && (
@@ -525,6 +561,7 @@ function OverviewPanel({ overview }: { overview: OverviewDto | null }) {
               <strong>
                 {progress.visited}/{progress.total}
               </strong>
+              <small>{progress.planned ? `${progress.planned} 个计划中` : "暂无计划中地点"}</small>
               <div className="meter" aria-label={`${label}完成度 ${percent}%`}>
                 <span style={{ width: `${percent}%` }} />
               </div>
@@ -629,7 +666,7 @@ function CorrectionWorkbench({
           <p className="muted">
             {activeUserName}
             {corrections
-              ? ` · ${corrections.explicitVisits} 条手动记录 · ${corrections.derivedVisits} 条自动带入`
+              ? ` · ${corrections.explicitVisits} 条手动到访记录 · ${corrections.derivedVisits} 条自动带入`
               : " · 正在读取记录"}
           </p>
         </div>
@@ -847,6 +884,22 @@ function formatPlaceDate(place: PlaceDto) {
     return String(place.visitedYear);
   }
   return "日期未填";
+}
+
+function renderPlacePin(place: PlaceDto) {
+  const pinClassName = ["pin", `pin-${place.displayStatus.toLowerCase()}`].join(" ");
+
+  return (
+    <span className={pinClassName}>
+      {place.visitStatus === VisitStatus.PLANNED ? <Flag size={13} /> : place.visited ? <Check size={13} /> : <MapPin size={13} />}
+      {place.displayStatus === "VISITED_WITH_PLANNED_CHILDREN" && <span className="pinBadge" />}
+    </span>
+  );
+}
+
+function getDisplayStatus(visitStatus: PlaceDto["visitStatus"], hasPlannedChildren: boolean): PlaceDisplayStatus {
+  if (visitStatus === VisitStatus.VISITED && hasPlannedChildren) return "VISITED_WITH_PLANNED_CHILDREN";
+  return visitStatus;
 }
 
 function getNextLayerLabel(place: PlaceDto) {

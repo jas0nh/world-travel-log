@@ -1,10 +1,20 @@
-import { DatePrecision, PlaceLevel, Prisma, type Visit } from "@prisma/client";
+import { DatePrecision, PlaceLevel, Prisma, VisitStatus, type Visit } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { prisma } from "./prisma";
 import { isCityStateCountry } from "./drill-policy";
 import { defaultUserId } from "./users";
-import type { CorrectionNodeDto, CorrectionsDto, MapFeature, MapLayerDto, OverviewDto, PlaceDto, ProgressDto } from "./types";
+import type {
+  CorrectionNodeDto,
+  CorrectionsDto,
+  MapFeature,
+  MapLayerDto,
+  OverviewDto,
+  PlaceDisplayStatus,
+  PlaceDto,
+  PlaceVisitStatus,
+  ProgressDto
+} from "./types";
 
 const childLevelByParent: Record<PlaceLevel, PlaceLevel | null> = {
   COUNTRY: PlaceLevel.REGION,
@@ -31,6 +41,12 @@ type PlaceWithVisit = {
   parentId: string | null;
   children: ChildVisitSummary[];
   visits: Visit[];
+};
+
+type VisitSummary = {
+  visitStatus: PlaceVisitStatus;
+  visited: boolean;
+  planned: boolean;
 };
 
 export function nextLevel(level?: PlaceLevel | null) {
@@ -80,6 +96,9 @@ export async function listPlaces(params: {
     const visibleChildren = cityStateChildren.get(place.id);
     const children = visibleChildren ?? place.children;
     const visit = place.visits[0];
+    const visitSummary = summarizeVisit(visit);
+    const plannedChildren = children.filter((child) => summarizeVisit(child.visits[0] as Visit | undefined).planned).length;
+    const hasPlannedChildren = plannedChildren > 0;
 
     return {
       id: place.id,
@@ -94,8 +113,12 @@ export async function listPlaces(params: {
       lng: place.lng,
       parentId: place.parentId,
       totalChildren: children.length,
-      visitedChildren: children.filter((child) => child.visits.length > 0).length,
-      visited: Boolean(visit),
+      visitedChildren: children.filter((child) => summarizeVisit(child.visits[0] as Visit | undefined).visited).length,
+      plannedChildren,
+      hasPlannedChildren,
+      visitStatus: visitSummary.visitStatus,
+      displayStatus: getDisplayStatus(visitSummary.visitStatus, hasPlannedChildren),
+      visited: visitSummary.visited,
       visitedAt: visit?.visitedAt?.toISOString() ?? null,
       datePrecision: visit?.datePrecision ?? DatePrecision.UNKNOWN,
       visitedYear: visit?.visitedYear ?? null,
@@ -117,7 +140,8 @@ export async function getProgress(parentId?: string | null, userId = defaultUser
     parentId: parentId ?? null,
     level: places[0]?.level ?? PlaceLevel.COUNTRY,
     total: places.length,
-    visited: places.filter((place) => place.visits.length > 0).length
+    visited: places.filter((place) => summarizeVisit(place.visits[0] as Visit | undefined).visited).length,
+    planned: places.filter((place) => summarizeVisit(place.visits[0] as Visit | undefined).planned).length
   };
 }
 
@@ -136,7 +160,7 @@ export async function getOverview(userId = defaultUserId): Promise<OverviewDto> 
       include: { visits: { where: { userId } } }
     }),
     prisma.visit.findMany({
-      where: { userId, isDerived: false },
+      where: { userId, isDerived: false, status: VisitStatus.VISITED },
       include: {
         place: {
           include: { parent: true }
@@ -204,7 +228,7 @@ export async function getCorrections(userId = defaultUserId): Promise<Correction
       }
     }),
     prisma.visit.findMany({
-      where: { userId },
+      where: { userId, status: VisitStatus.VISITED },
       include: { place: true },
       orderBy: [{ visitedYear: "desc" }, { visitedMonth: "desc" }, { visitedDay: "desc" }, { updatedAt: "desc" }]
     })
@@ -247,6 +271,7 @@ export async function getCorrections(userId = defaultUserId): Promise<Correction
     node.visit = {
       id: visit.id,
       isDerived: visit.isDerived,
+      status: visit.status,
       dateLabel: formatVisitDate(visit),
       datePrecision: visit.datePrecision,
       visitedAt: visit.visitedAt?.toISOString() ?? null,
@@ -286,7 +311,8 @@ function progressFromPlaces(
     parentId,
     level,
     total: places.length,
-    visited: places.filter((place) => place.visits.length > 0).length
+    visited: places.filter((place) => summarizeVisit(place.visits[0] as Visit | undefined).visited).length,
+    planned: places.filter((place) => summarizeVisit(place.visits[0] as Visit | undefined).planned).length
   };
 }
 
@@ -307,28 +333,35 @@ async function listCityStateCities(countryCode: string, userId: string) {
 
   return (places as PlaceWithVisit[]).map<PlaceDto>((place) => {
     const visit = place.visits[0];
+    const visitSummary = summarizeVisit(visit);
+    const plannedChildren = place.children.filter((child) => summarizeVisit(child.visits[0] as Visit | undefined).planned).length;
+    const hasPlannedChildren = plannedChildren > 0;
     return {
-    id: place.id,
-    name: place.name,
-    nativeName: place.nativeName,
-    level: place.level,
-    childLevel: null,
-    code: place.code,
-    isoNumeric: place.isoNumeric,
-    countryCode: place.countryCode,
-    lat: place.lat,
-    lng: place.lng,
-    parentId: place.parentId,
-    totalChildren: place.children.length,
-    visitedChildren: place.children.filter((child) => child.visits.length > 0).length,
-    visited: Boolean(visit),
-    visitedAt: visit?.visitedAt?.toISOString() ?? null,
-    datePrecision: visit?.datePrecision ?? DatePrecision.UNKNOWN,
-    visitedYear: visit?.visitedYear ?? null,
-    visitedMonth: visit?.visitedMonth ?? null,
-    visitedDay: visit?.visitedDay ?? null,
-    isDerived: visit?.isDerived ?? false,
-    note: visit?.note ?? null
+      id: place.id,
+      name: place.name,
+      nativeName: place.nativeName,
+      level: place.level,
+      childLevel: null,
+      code: place.code,
+      isoNumeric: place.isoNumeric,
+      countryCode: place.countryCode,
+      lat: place.lat,
+      lng: place.lng,
+      parentId: place.parentId,
+      totalChildren: place.children.length,
+      visitedChildren: place.children.filter((child) => summarizeVisit(child.visits[0] as Visit | undefined).visited).length,
+      plannedChildren,
+      hasPlannedChildren,
+      visitStatus: visitSummary.visitStatus,
+      displayStatus: getDisplayStatus(visitSummary.visitStatus, hasPlannedChildren),
+      visited: visitSummary.visited,
+      visitedAt: visit?.visitedAt?.toISOString() ?? null,
+      datePrecision: visit?.datePrecision ?? DatePrecision.UNKNOWN,
+      visitedYear: visit?.visitedYear ?? null,
+      visitedMonth: visit?.visitedMonth ?? null,
+      visitedDay: visit?.visitedDay ?? null,
+      isDerived: visit?.isDerived ?? false,
+      note: visit?.note ?? null
     };
   });
 }
@@ -442,6 +475,20 @@ function padDatePart(value: number) {
   return String(value).padStart(2, "0");
 }
 
+function summarizeVisit(visit?: Visit): VisitSummary {
+  const visitStatus: PlaceVisitStatus = visit ? visit.status : "NONE";
+  return {
+    visitStatus,
+    visited: visitStatus === VisitStatus.VISITED,
+    planned: visitStatus === VisitStatus.PLANNED
+  };
+}
+
+function getDisplayStatus(visitStatus: PlaceVisitStatus, hasPlannedChildren: boolean): PlaceDisplayStatus {
+  if (visitStatus === VisitStatus.VISITED && hasPlannedChildren) return "VISITED_WITH_PLANNED_CHILDREN";
+  return visitStatus;
+}
+
 export async function getBreadcrumb(placeId?: string | null) {
   if (!placeId) return [];
 
@@ -479,9 +526,13 @@ export async function getMapLayer(parentId?: string | null, userId = defaultUser
         nativeName: place.nativeName,
         level: place.level,
         parentId: place.parentId,
+        visitStatus: place.visitStatus,
+        displayStatus: place.displayStatus,
         visited: place.visited,
         totalChildren: place.totalChildren,
-        visitedChildren: place.visitedChildren
+        visitedChildren: place.visitedChildren,
+        plannedChildren: place.plannedChildren,
+        hasPlannedChildren: place.hasPlannedChildren
       },
       geometry: {
         type: "Point",

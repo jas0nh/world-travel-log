@@ -1,6 +1,7 @@
 "use client";
 
 import maplibregl, {
+  ExpressionSpecification,
   GeoJSONSource,
   LngLatBounds,
   Map as MapLibreMap,
@@ -317,6 +318,18 @@ export default function TravelMap({
 }
 
 function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): StyleSpecification {
+  const fillColor: ExpressionSpecification = ["match", ["get", "displayStatus"], "VISITED", "#14b8a6", "PLANNED", "#f59e0b", "VISITED_WITH_PLANNED_CHILDREN", "#0b5d57", "#f8fafc"];
+  const lineColor: ExpressionSpecification = ["match", ["get", "displayStatus"], "VISITED", "#0f766e", "PLANNED", "#b45309", "VISITED_WITH_PLANNED_CHILDREN", "#b45309", "#475569"];
+  const circleColor: ExpressionSpecification = ["match", ["get", "displayStatus"], "VISITED", "#14b8a6", "PLANNED", "#f59e0b", "VISITED_WITH_PLANNED_CHILDREN", "#0b5d57", "#f8fafc"];
+  const fillOpacity: ExpressionSpecification = [
+    "case",
+    ["==", ["get", "id"], ""],
+    0.48,
+    ["match", ["get", "displayStatus"], "VISITED", true, "PLANNED", true, "VISITED_WITH_PLANNED_CHILDREN", true, false],
+    0.42,
+    0.24
+  ];
+
   return {
     version: 8,
     sources: {
@@ -410,20 +423,8 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         source: CURRENT_SOURCE,
         filter: AREA_FILTER,
         paint: {
-          "fill-color": [
-            "case",
-            ["boolean", ["get", "visited"], false],
-            "#14b8a6",
-            "#f8fafc"
-          ],
-          "fill-opacity": [
-            "case",
-            ["==", ["get", "id"], ""],
-            0.48,
-            ["boolean", ["get", "visited"], false],
-            0.42,
-            0.24
-          ]
+          "fill-color": fillColor,
+          "fill-opacity": fillOpacity
         }
       },
       {
@@ -432,14 +433,7 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
         source: CURRENT_SOURCE,
         filter: AREA_FILTER,
         paint: {
-          "line-color": [
-            "case",
-            ["==", ["get", "id"], ""],
-            "#101827",
-            ["boolean", ["get", "visited"], false],
-            "#0f766e",
-            "#475569"
-          ],
+          "line-color": lineColor,
           "line-opacity": 0.96,
           "line-width": ["case", ["==", ["get", "id"], ""], 2.4, 1.2]
         }
@@ -456,21 +450,14 @@ function createStyle(layer: MapLayerDto, contextLayer: MapLayerDto | null): Styl
             ["case", ["==", ["get", "level"], "CITY"], 13, 17],
             ["case", ["==", ["get", "level"], "CITY"], 8, 12]
           ],
-          "circle-color": [
+          "circle-color": circleColor,
+          "circle-opacity": [
             "case",
-            ["boolean", ["get", "visited"], false],
-            "#14b8a6",
-            "#f8fafc"
+            ["match", ["get", "displayStatus"], "VISITED", true, "PLANNED", true, "VISITED_WITH_PLANNED_CHILDREN", true, false],
+            0.88,
+            0.75
           ],
-          "circle-opacity": ["case", ["boolean", ["get", "visited"], false], 0.88, 0.75],
-          "circle-stroke-color": [
-            "case",
-            ["==", ["get", "id"], ""],
-            "#101827",
-            ["boolean", ["get", "visited"], false],
-            "#0f766e",
-            "#475569"
-          ],
+          "circle-stroke-color": lineColor,
           "circle-stroke-width": ["case", ["==", ["get", "id"], ""], 3, 2]
         }
       }
@@ -486,7 +473,7 @@ function updateSelectedPaint(map: MapLibreMap | null, selectedId: string | null)
     "case",
     ["==", ["get", "id"], selected],
     0.48,
-    ["boolean", ["get", "visited"], false],
+    ["match", ["get", "displayStatus"], "VISITED", true, "PLANNED", true, "VISITED_WITH_PLANNED_CHILDREN", true, false],
     0.42,
     0.24
   ]);
@@ -494,9 +481,7 @@ function updateSelectedPaint(map: MapLibreMap | null, selectedId: string | null)
     "case",
     ["==", ["get", "id"], selected],
     "#101827",
-    ["boolean", ["get", "visited"], false],
-    "#0f766e",
-    "#475569"
+    ["match", ["get", "displayStatus"], "VISITED", "#0f766e", "PLANNED", "#b45309", "VISITED_WITH_PLANNED_CHILDREN", "#b45309", "#475569"]
   ]);
   map.setPaintProperty(CURRENT_LINE, "line-width", [
     "case",
@@ -514,9 +499,7 @@ function updateSelectedPaint(map: MapLibreMap | null, selectedId: string | null)
     "case",
     ["==", ["get", "id"], selected],
     "#101827",
-    ["boolean", ["get", "visited"], false],
-    "#0f766e",
-    "#475569"
+    ["match", ["get", "displayStatus"], "VISITED", "#0f766e", "PLANNED", "#b45309", "VISITED_WITH_PLANNED_CHILDREN", "#b45309", "#475569"]
   ]);
   map.setPaintProperty(CURRENT_CIRCLE, "circle-stroke-width", [
     "case",
@@ -617,10 +600,12 @@ function tooltipHtml(properties: MapFeature["properties"]) {
   const title = escapeHtml(properties.nativeName ?? properties.name);
   const detail =
     properties.totalChildren > 0
-      ? `${properties.visitedChildren}/${properties.totalChildren}`
-      : properties.visited
-        ? "已去过"
-        : "未去过";
+      ? `${properties.visitedChildren}/${properties.totalChildren} 已到访${properties.plannedChildren ? ` · ${properties.plannedChildren} 个计划中` : ""}`
+      : properties.visitStatus === "VISITED"
+        ? "已到访"
+        : properties.visitStatus === "PLANNED"
+          ? "计划中"
+          : "未标记";
   return `<strong>${title}</strong><br />${escapeHtml(detail)}`;
 }
 
