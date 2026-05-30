@@ -7,8 +7,10 @@ This public repository contains the app code, geographic seed/import scripts, an
 ## What it does
 
 - Browse the world at country level, then drill into regions and cities
-- Track visits with flexible date precision: year, month, day, or unknown
-- Show a travel overview panel with progress, timeline groups, and recent records
+- Track visited places with flexible date precision: year, month, day, or unknown
+- Mark future travel plans separately from visited places
+- Show a travel overview panel with progress, planned counts, timeline groups, and recent records
+- Correct visited and planned records from a focused correction workspace
 - Load boundary data through PMTiles instead of pushing large raw GeoJSON into the browser
 
 ## Tech stack
@@ -62,6 +64,7 @@ npm run dev
 ```
 
 The default app entry is `http://localhost:3000`.
+This local workspace also has a launchd production service on `http://localhost:8378`.
 
 ## Map asset pipeline
 
@@ -83,8 +86,13 @@ Intermediate conversion files stay under `.cache/natural-earth/` and are not par
 ## Data model
 
 - `Place`: countries, regions, and cities
-- `Visit`: visit state, date precision, and optional notes
+- `Visit`: per-user place state, optional notes, and visited date fields
+- `VisitStatus`: `VISITED` for completed trips and `PLANNED` for future destinations
 - `MapLayerCache`: cached layer metadata
+
+`PLANNED` records do not count toward visited progress or travel timelines. Parent
+places can still show a mixed display state when they are already visited and have
+planned child destinations.
 
 ## Useful scripts
 

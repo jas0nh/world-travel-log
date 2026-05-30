@@ -95,6 +95,7 @@ export type CorrectionNodeDto = {
 
 export type CorrectionsDto = {
   roots: CorrectionNodeDto[];
+  status: PrismaVisitStatus;
   totalVisits: number;
   explicitVisits: number;
   derivedVisits: number;

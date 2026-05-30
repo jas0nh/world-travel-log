@@ -612,6 +612,18 @@ h2 {
   padding-bottom: 18px;
 }
 
+.correctionHeaderActions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.correctionModeSwitch {
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  margin: 0;
+  min-width: 168px;
+}
+
 .correctionHeader h2 {
   font-size: 34px;
 }
@@ -686,6 +698,10 @@ h2 {
   display: grid;
   gap: 8px;
   grid-template-columns: 168px minmax(220px, 1fr) 88px;
+}
+
+.correctionFields.planned {
+  grid-template-columns: minmax(220px, 1fr) 88px;
 }
 
 .dateParts.compact input,

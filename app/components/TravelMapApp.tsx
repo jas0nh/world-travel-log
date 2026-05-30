@@ -53,6 +53,7 @@ export default function TravelMapApp() {
   const [visitedMonth, setVisitedMonth] = useState("");
   const [visitedDay, setVisitedDay] = useState("");
   const [activeTab, setActiveTab] = useState<"map" | "overview" | "correction">("map");
+  const [correctionStatus, setCorrectionStatus] = useState<VisitStatus>(VisitStatus.VISITED);
   const [overview, setOverview] = useState<OverviewDto | null>(null);
   const [corrections, setCorrections] = useState<CorrectionsDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,10 +121,10 @@ export default function TravelMapApp() {
   }, [userQuery]);
 
   const loadCorrections = useCallback(async () => {
-    const response = await fetch(`/api/corrections${userQuery()}`);
+    const response = await fetch(`/api/corrections${userQuery()}&status=${correctionStatus}`);
     const data = (await response.json()) as CorrectionsDto;
     setCorrections(data);
-  }, [userQuery]);
+  }, [correctionStatus, userQuery]);
 
   useEffect(() => {
     if (activeTab === "overview") void loadOverview();
@@ -174,6 +175,7 @@ export default function TravelMapApp() {
     setOverview(null);
     setCorrections(null);
     setEditorStatus(VisitStatus.VISITED);
+    setCorrectionStatus(VisitStatus.VISITED);
   };
 
   const openPlace = (place: PlaceDto) => {
@@ -288,16 +290,16 @@ export default function TravelMapApp() {
     }
   };
 
-  const saveCorrection = async (node: CorrectionNodeDto, edit: CorrectionEdit) => {
-    const datePayload = getDatePayload(edit.visitedYear, edit.visitedMonth, edit.visitedDay);
+  const saveCorrection = async (node: CorrectionNodeDto, edit: CorrectionEdit, status: VisitStatus) => {
+    const datePayload = status === VisitStatus.VISITED ? getDatePayload(edit.visitedYear, edit.visitedMonth, edit.visitedDay) : null;
     const response = await fetch("/api/visits", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userId: activeUserId,
         placeId: node.id,
-        status: VisitStatus.VISITED,
-        ...datePayload,
+        status,
+        ...(datePayload ?? {}),
         note: edit.note || null
       })
     });
@@ -523,7 +525,12 @@ export default function TravelMapApp() {
       {activeTab === "correction" && (
         <CorrectionWorkbench
           activeUserName={activeUser.name}
+          correctionStatus={correctionStatus}
           corrections={corrections}
+          onStatusChange={(status) => {
+            setCorrectionStatus(status);
+            setCorrections(null);
+          }}
           onClose={() => setActiveTab("map")}
           onSave={saveCorrection}
         />
@@ -604,14 +611,18 @@ function OverviewPanel({ overview }: { overview: OverviewDto | null }) {
 
 function CorrectionWorkbench({
   activeUserName,
+  correctionStatus,
   corrections,
+  onStatusChange,
   onClose,
   onSave
 }: {
   activeUserName: string;
+  correctionStatus: VisitStatus;
   corrections: CorrectionsDto | null;
+  onStatusChange: (status: VisitStatus) => void;
   onClose: () => void;
-  onSave: (node: CorrectionNodeDto, edit: CorrectionEdit) => Promise<void>;
+  onSave: (node: CorrectionNodeDto, edit: CorrectionEdit, status: VisitStatus) => Promise<void>;
 }) {
   const [edits, setEdits] = useState<Record<string, CorrectionEdit>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -646,7 +657,7 @@ function CorrectionWorkbench({
     const edit = edits[node.id];
     if (!edit) return;
     setSavingId(node.id);
-    await onSave(node, edit);
+    await onSave(node, edit, correctionStatus);
     setSavingId(null);
   };
 
@@ -666,13 +677,31 @@ function CorrectionWorkbench({
           <p className="muted">
             {activeUserName}
             {corrections
-              ? ` · ${corrections.explicitVisits} 条手动到访记录 · ${corrections.derivedVisits} 条自动带入`
+              ? correctionStatus === VisitStatus.VISITED
+                ? ` · ${corrections.explicitVisits} 条手动到访记录 · ${corrections.derivedVisits} 条自动带入`
+                : ` · ${corrections.explicitVisits} 条计划中记录`
               : " · 正在读取记录"}
           </p>
         </div>
-        <button className="iconButton" onClick={onClose} title="关闭校正界面">
-          <X size={18} />
-        </button>
+        <div className="correctionHeaderActions">
+          <div className="segmented correctionModeSwitch" aria-label="校正记录类型">
+            <button
+              className={correctionStatus === VisitStatus.VISITED ? "active" : ""}
+              onClick={() => onStatusChange(VisitStatus.VISITED)}
+            >
+              已到访
+            </button>
+            <button
+              className={correctionStatus === VisitStatus.PLANNED ? "active" : ""}
+              onClick={() => onStatusChange(VisitStatus.PLANNED)}
+            >
+              计划中
+            </button>
+          </div>
+          <button className="iconButton" onClick={onClose} title="关闭校正界面">
+            <X size={18} />
+          </button>
+        </div>
       </header>
 
       {!corrections ? (
@@ -694,7 +723,7 @@ function CorrectionWorkbench({
           ))}
         </div>
       ) : (
-        <div className="empty">当前用户还没有记录</div>
+        <div className="empty">当前用户还没有{correctionStatus === VisitStatus.VISITED ? "到访" : "计划中"}记录</div>
       )}
     </section>
   );
@@ -774,9 +803,11 @@ function CorrectionRow({
   onSave: (node: CorrectionNodeDto) => void;
 }) {
   const edit = edits[node.id];
+  const isPlanned = node.visit?.status === VisitStatus.PLANNED;
   const rowClassName = [
     "correctionRow",
     node.visit ? "editable" : "groupOnly",
+    isPlanned ? "planned" : "visited",
     node.children.length > 0 ? "hasChildren" : "noChildren"
   ].join(" ");
 
@@ -787,7 +818,7 @@ function CorrectionRow({
         <strong>{node.nativeName ?? node.name}</strong>
         {node.visit ? (
           <small>
-            {node.visit.dateLabel}
+            {node.visit.status === VisitStatus.PLANNED ? "计划中" : node.visit.dateLabel}
             {node.visit.isDerived ? " · 自动带入" : ""}
           </small>
         ) : (
@@ -802,35 +833,37 @@ function CorrectionRow({
       )}
 
       {node.visit && edit && (
-        <div className="correctionFields">
-          <div className="dateParts compact">
-            <input
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="年"
-              value={edit.visitedYear}
-              onChange={(event) => onEdit(node.id, { visitedYear: onlyDigits(event.target.value, 4) })}
-            />
-            <input
-              inputMode="numeric"
-              maxLength={2}
-              placeholder="月"
-              value={edit.visitedMonth}
-              onChange={(event) => onEdit(node.id, { visitedMonth: onlyDigits(event.target.value, 2) })}
-            />
-            <input
-              inputMode="numeric"
-              maxLength={2}
-              placeholder="日"
-              value={edit.visitedDay}
-              onChange={(event) => onEdit(node.id, { visitedDay: onlyDigits(event.target.value, 2) })}
-            />
-          </div>
+        <div className={isPlanned ? "correctionFields planned" : "correctionFields"}>
+          {!isPlanned && (
+            <div className="dateParts compact">
+              <input
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="年"
+                value={edit.visitedYear}
+                onChange={(event) => onEdit(node.id, { visitedYear: onlyDigits(event.target.value, 4) })}
+              />
+              <input
+                inputMode="numeric"
+                maxLength={2}
+                placeholder="月"
+                value={edit.visitedMonth}
+                onChange={(event) => onEdit(node.id, { visitedMonth: onlyDigits(event.target.value, 2) })}
+              />
+              <input
+                inputMode="numeric"
+                maxLength={2}
+                placeholder="日"
+                value={edit.visitedDay}
+                onChange={(event) => onEdit(node.id, { visitedDay: onlyDigits(event.target.value, 2) })}
+              />
+            </div>
+          )}
           <input
             className="correctionNote"
             value={edit.note}
             onChange={(event) => onEdit(node.id, { note: event.target.value })}
-            placeholder="备注"
+            placeholder={isPlanned ? "计划备注" : "备注"}
           />
           <button className="primary correctionSave" onClick={() => onSave(node)} disabled={savingId === node.id}>
             <Save size={15} />

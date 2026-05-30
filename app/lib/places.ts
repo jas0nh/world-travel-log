@@ -215,7 +215,7 @@ export async function getOverview(userId = defaultUserId): Promise<OverviewDto> 
   };
 }
 
-export async function getCorrections(userId = defaultUserId): Promise<CorrectionsDto> {
+export async function getCorrections(userId = defaultUserId, status: VisitStatus = VisitStatus.VISITED): Promise<CorrectionsDto> {
   const [places, visits] = await Promise.all([
     prisma.place.findMany({
       select: {
@@ -228,7 +228,7 @@ export async function getCorrections(userId = defaultUserId): Promise<Correction
       }
     }),
     prisma.visit.findMany({
-      where: { userId, status: VisitStatus.VISITED },
+      where: { userId, status },
       include: { place: true },
       orderBy: [{ visitedYear: "desc" }, { visitedMonth: "desc" }, { visitedDay: "desc" }, { updatedAt: "desc" }]
     })
@@ -296,6 +296,7 @@ export async function getCorrections(userId = defaultUserId): Promise<Correction
 
   return {
     roots,
+    status,
     totalVisits: visits.length,
     explicitVisits: visits.filter((visit) => !visit.isDerived).length,
     derivedVisits: visits.filter((visit) => visit.isDerived).length
