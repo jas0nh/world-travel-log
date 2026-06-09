@@ -4,6 +4,8 @@ A personal travel map app built with Next.js, Prisma, SQLite, and MapLibre GL.
 
 This public repository contains the app code, geographic seed/import scripts, and static map asset pipeline. It does **not** include personal visit history, local databases, backups, or runtime logs.
 
+<img width="2938" height="1516" alt="image" src="https://github.com/user-attachments/assets/69302bae-13f5-4449-b0c1-e92be6cb7c75" />
+
 ## What it does
 
 - Browse the world at country level, then drill into regions and cities
